@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Updated the Terminal installer to avoid the GitHub Releases API, reducing unauthenticated `403` failures on some networks.
+
 ## 0.6.3
 
 - Changed swipe-down minimize to default on for new installs.

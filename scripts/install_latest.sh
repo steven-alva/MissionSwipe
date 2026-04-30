@@ -16,21 +16,22 @@ fail() {
 }
 
 command -v curl >/dev/null 2>&1 || fail "curl is required"
-command -v awk >/dev/null 2>&1 || fail "awk is required"
 command -v ditto >/dev/null 2>&1 || fail "ditto is required"
 command -v unzip >/dev/null 2>&1 || fail "unzip is required"
 
-API_URL="https://api.github.com/repos/$REPO/releases/latest"
+LATEST_RELEASE_URL="https://github.com/$REPO/releases/latest"
 TMP_DIR="$(mktemp -d "${TMPDIR:-/tmp}/missionswipe-install.XXXXXX")"
 trap 'rm -rf "$TMP_DIR"' EXIT
 
 log "Checking latest release from https://github.com/$REPO"
-release_json="$(curl -fsSL "$API_URL")"
-tag_name="$(printf '%s\n' "$release_json" | awk -F'"' '/"tag_name":/ { print $4; exit }')"
-download_url="$(printf '%s\n' "$release_json" | awk -F'"' '/"browser_download_url":/ && /MissionSwipe-.*-macos\.zip/ { print $4; exit }')"
+resolved_latest_url="$(curl -fsSL -o /dev/null -w '%{url_effective}' "$LATEST_RELEASE_URL")"
+tag_name="${resolved_latest_url##*/}"
 
 [[ -n "$tag_name" ]] || fail "Could not read latest release tag"
-[[ -n "$download_url" ]] || fail "Could not find MissionSwipe macOS zip in latest release"
+[[ "$tag_name" == v* ]] || fail "Could not resolve a version tag from $LATEST_RELEASE_URL"
+
+version="${tag_name#v}"
+download_url="https://github.com/$REPO/releases/download/$tag_name/$APP_NAME-$version-macos.zip"
 
 zip_path="$TMP_DIR/$APP_NAME.zip"
 extract_dir="$TMP_DIR/extract"
