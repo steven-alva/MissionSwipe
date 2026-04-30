@@ -4,6 +4,11 @@
 
 - Added lightweight Terminal install/update script at `scripts/install_latest.sh`.
 
+## 0.6.1
+
+- Move the mouse away from the minimized Mission Control thumbnail after swipe-down minimize succeeds.
+- This avoids clicking a stale blue Mission Control hover frame and accidentally restoring the minimized window.
+
 ## 0.6.0
 
 - Added experimental Mission Control swipe-down minimize.

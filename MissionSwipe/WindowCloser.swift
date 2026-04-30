@@ -221,7 +221,13 @@ final class WindowCloser {
             )
             lastActionReport = "\(action.successPrefix): \(summary)"
             Logger.info("\(action.successPrefix): \(summary)")
-            missionControlOverlayRefresher.refreshHoverFeedback(near: mousePoint)
+            switch action {
+            case .close:
+                missionControlOverlayRefresher.refreshHoverFeedback(near: mousePoint)
+            case .minimize:
+                let avoidBounds = geometryMatch.predictedBounds ?? geometryMatch.candidate.bounds
+                missionControlOverlayRefresher.moveMouseAwayFromHover(near: mousePoint, avoiding: avoidBounds)
+            }
         } else {
             Logger.error("Mission Control \(action.verb) workflow failed without crashing or force quitting")
         }
