@@ -55,7 +55,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             NSApp.terminate(nil)
         }
 
-        refreshPermissionStatus(showPromptWhenMissing: true)
+        guard refreshPermissionStatus(showPromptWhenMissing: true) else {
+            return
+        }
         statusBarController.updateMissionControlMode(isEnabled: configuration.enableMissionControlMode)
         statusBarController.updateSwipeUpToClose(isEnabled: configuration.enableSwipeUpToClose)
         statusBarController.updateSwipeDownToMinimize(isEnabled: configuration.enableSwipeDownToMinimize)
@@ -172,14 +174,20 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         Logger.info("Copied last Mission Control action report to clipboard")
     }
 
-    private func refreshPermissionStatus(showPromptWhenMissing: Bool) {
+    @discardableResult
+    private func refreshPermissionStatus(showPromptWhenMissing: Bool) -> Bool {
         let isTrusted = permissionManager.isAccessibilityTrusted
         Logger.info("Accessibility trusted: \(isTrusted)")
         statusBarController?.updateAccessibilityStatus(isTrusted: isTrusted)
 
         if !isTrusted && showPromptWhenMissing {
             permissionManager.logPermissionDiagnostics(reason: "Permission missing on launch")
-            permissionManager.requestSystemAccessibilityPrompt()
+            if permissionManager.requestSystemAccessibilityPromptIfNeeded() {
+                permissionManager.showRestartRequiredAlertThenQuit()
+                return false
+            }
         }
+
+        return true
     }
 }

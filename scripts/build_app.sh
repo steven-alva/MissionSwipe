@@ -3,11 +3,12 @@ set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 APP_NAME="MissionSwipe"
-VERSION="${MISSION_SWIPE_VERSION:-0.6.1}"
-BUILD_NUMBER="${MISSION_SWIPE_BUILD:-7}"
+VERSION="${MISSION_SWIPE_VERSION:-0.6.2}"
+BUILD_NUMBER="${MISSION_SWIPE_BUILD:-8}"
 BUNDLE_ID="${MISSION_SWIPE_BUNDLE_ID:-io.github.stevenalva.MissionSwipe}"
 MIN_MACOS="${MISSION_SWIPE_MIN_MACOS:-13.0}"
 BUILD_UNIVERSAL="${BUILD_UNIVERSAL:-1}"
+SIGNING_IDENTITY="${MISSION_SWIPE_CODESIGN_IDENTITY:-}"
 
 DIST_DIR="$ROOT_DIR/dist"
 BUILD_DIR="$ROOT_DIR/build/release"
@@ -86,7 +87,18 @@ PLIST
 
 plutil -lint "$CONTENTS_DIR/Info.plist" >/dev/null
 
-codesign --force --sign - "$APP_DIR" >/dev/null
+if [[ -z "$SIGNING_IDENTITY" ]]; then
+  SIGNING_IDENTITY="$(security find-identity -v -p codesigning 2>/dev/null | awk -F'"' '/Apple Development:/ { print $2; exit }')"
+fi
+
+if [[ -n "$SIGNING_IDENTITY" ]]; then
+  echo "Signing with $SIGNING_IDENTITY"
+  codesign --force --sign "$SIGNING_IDENTITY" "$APP_DIR" >/dev/null
+else
+  echo "Signing with ad-hoc identity"
+  codesign --force --sign - "$APP_DIR" >/dev/null
+fi
+
 ditto -c -k --keepParent "$APP_DIR" "$ZIP_PATH"
 
 echo "Built $APP_DIR"

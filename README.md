@@ -2,7 +2,7 @@
 
 MissionSwipe is a macOS AppKit prototype menu bar app. Its main path is Mission Control only: hover a Mission Control window thumbnail, then close it with `Control + Option + W` or a trackpad swipe-up gesture. MVP 0.6 also includes an experimental swipe-down minimize gesture.
 
-## Current version: MVP 0.6
+## Current version: MVP 0.6.2
 
 MVP 0.6 keeps the product boundary narrow: acting on hovered Mission Control thumbnails while normal desktop windows stay untouched. Swipe-down minimize is experimental and off by default.
 
@@ -34,7 +34,7 @@ Still intentionally not implemented:
 
 Download the latest `MissionSwipe-*-macos.zip` from GitHub Releases, unzip it, and move `MissionSwipe.app` to Applications.
 
-The current public build is ad-hoc signed and not notarized yet. On first launch, macOS may show an unidentified developer warning. Use right click > Open once, then grant Accessibility permission when prompted.
+The current public build is signed when a local Apple Development identity is available, but it is not notarized yet. On first launch, macOS may show an unidentified developer warning. Use right click > Open once, then grant Accessibility permission when prompted.
 
 Terminal install/update:
 
@@ -55,7 +55,7 @@ scripts/build_app.sh
 This creates:
 
 - `dist/MissionSwipe.app`
-- `dist/MissionSwipe-0.6.0-macos.zip`
+- `dist/MissionSwipe-0.6.2-macos.zip`
 
 The script builds a universal app for Apple Silicon and Intel Macs by default. For a faster local-only build, run:
 
@@ -75,7 +75,7 @@ BUILD_UNIVERSAL=0 scripts/build_app.sh
 
 MissionSwipe needs Accessibility permission because it uses `AXUIElement` to find and press the close button of the matched window.
 
-On launch, the app checks Accessibility permission. If permission is missing, it shows a prompt and provides an `Open Accessibility Settings` menu item.
+On launch, the app checks Accessibility permission. If permission is missing on first launch, it requests the system prompt, explains that MissionSwipe should be reopened after granting access, and quits so macOS can apply the permission cleanly. The menu also provides an `Open Accessibility Settings` item.
 
 Path:
 
@@ -163,7 +163,7 @@ Gesture mapping:
 - Swipe up: close hovered Mission Control thumbnail.
 - Swipe down: minimize hovered Mission Control thumbnail. This is experimental and disabled by default.
 
-Minimize uses the native AX minimize button first. If macOS chooses to play the system minimize animation from Mission Control, MissionSwipe lets that happen. If Mission Control only refreshes the thumbnail layout, that is also accepted behavior. After a successful minimize, MissionSwipe moves the mouse outside the thumbnail area to avoid clicking a stale blue hover frame and restoring the minimized window.
+Minimize uses the native AX minimize button first. If macOS chooses to play the system minimize animation from Mission Control, MissionSwipe lets that happen. If Mission Control only refreshes the thumbnail layout, that is also accepted behavior. After a successful minimize, MissionSwipe briefly guards the old thumbnail area and suppresses one click on the stale blue hover frame so the window is less likely to restore immediately.
 
 The detector now performs a Mission Control preflight before it starts accumulating a scroll gesture. If the preflight is not at least medium confidence, the gesture is not armed and the scroll is ignored. This prevents ordinary desktop scrolling, such as scrolling Xcode logs, from reaching the close workflow.
 
@@ -266,7 +266,7 @@ Useful lines when `Debug Logging` is on:
 - Gesture minimize only works while Mission Control is detected and the experimental menu item is enabled.
 - A single physical swipe should affect only one window because the detector enters a cooldown after triggering.
 - The macOS "magic" minimize effect is controlled by Dock/WindowServer. MissionSwipe presses the native minimize button, but Mission Control may still choose to simply refresh the thumbnail layout.
-- Swipe-down minimize intentionally moves the cursor away from the minimized thumbnail so a stale Mission Control hover frame is less likely to restore the window on click.
+- Swipe-down minimize briefly installs a stale-thumbnail click guard so one immediate click on the old hover frame is less likely to restore the minimized window.
 - If same-app windows have identical titles and nearly identical geometry, AX matching may need the ranked Mission Control order fallback.
 - Some apps hide window titles or report different CG and AX geometry.
 - Apps may show an unsaved changes confirmation dialog after the close button is pressed.

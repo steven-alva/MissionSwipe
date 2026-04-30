@@ -37,6 +37,7 @@ final class WindowCloser {
     private let missionControlDetector: MissionControlDetector
     private let debugDumper: DebugWindowDumper
     private let missionControlOverlayRefresher: MissionControlOverlayRefresher
+    private let missionControlClickGuard: MissionControlClickGuard
 
     private let missionControlCloseThreshold: MatchingConfidence = .high
     private let swipePreflightReuseInterval: TimeInterval = 0.45
@@ -52,7 +53,8 @@ final class WindowCloser {
         axWindowController: AXWindowController = AXWindowController(),
         missionControlDetector: MissionControlDetector = MissionControlDetector(),
         debugDumper: DebugWindowDumper = DebugWindowDumper(),
-        missionControlOverlayRefresher: MissionControlOverlayRefresher = MissionControlOverlayRefresher()
+        missionControlOverlayRefresher: MissionControlOverlayRefresher = MissionControlOverlayRefresher(),
+        missionControlClickGuard: MissionControlClickGuard = MissionControlClickGuard()
     ) {
         self.permissionManager = permissionManager
         self.windowEnumerator = windowEnumerator
@@ -60,6 +62,7 @@ final class WindowCloser {
         self.missionControlDetector = missionControlDetector
         self.debugDumper = debugDumper
         self.missionControlOverlayRefresher = missionControlOverlayRefresher
+        self.missionControlClickGuard = missionControlClickGuard
     }
 
     func closeMissionControlWindowUnderMouseIfActive(usePreparedSwipeDetection: Bool = false) {
@@ -225,8 +228,8 @@ final class WindowCloser {
             case .close:
                 missionControlOverlayRefresher.refreshHoverFeedback(near: mousePoint)
             case .minimize:
-                let avoidBounds = geometryMatch.predictedBounds ?? geometryMatch.candidate.bounds
-                missionControlOverlayRefresher.moveMouseAwayFromHover(near: mousePoint, avoiding: avoidBounds)
+                let staleThumbnailBounds = geometryMatch.predictedBounds ?? geometryMatch.candidate.bounds
+                missionControlClickGuard.protectAgainstStaleThumbnailClick(in: staleThumbnailBounds)
             }
         } else {
             Logger.error("Mission Control \(action.verb) workflow failed without crashing or force quitting")

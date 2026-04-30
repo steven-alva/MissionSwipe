@@ -2,7 +2,14 @@
 
 ## Unreleased
 
+## 0.6.2
+
 - Added lightweight Terminal install/update script at `scripts/install_latest.sh`.
+- Replaced swipe-down minimize cursor movement with a short-lived stale-thumbnail click guard.
+- After a Mission Control minimize succeeds, the app suppresses one click on the old hover frame so the minimized window is less likely to restore immediately.
+- Improved local/release signing behavior by preferring an Apple Development signing identity when available, while falling back to ad-hoc signing.
+- Reduced repeated Accessibility permission prompts by adding a cooldown around the system prompt request.
+- When Accessibility permission is requested on first launch, MissionSwipe now explains that the app should be reopened and then quits so the permission state is applied cleanly.
 
 ## 0.6.1
 
