@@ -36,6 +36,14 @@ Download the latest `MissionSwipe-*-macos.zip` from GitHub Releases, unzip it, a
 
 The current public build is ad-hoc signed and not notarized yet. On first launch, macOS may show an unidentified developer warning. Use right click > Open once, then grant Accessibility permission when prompted.
 
+Terminal install/update:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/steven-alva/MissionSwipe/main/scripts/install_latest.sh | bash
+```
+
+The command always installs the latest GitHub release. By default it installs to `/Applications`, falls back to `~/Applications` if needed, and opens MissionSwipe after installation.
+
 ## Build the app locally
 
 Run:

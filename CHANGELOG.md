@@ -1,5 +1,9 @@
 # Changelog
 
+## Unreleased
+
+- Added lightweight Terminal install/update script at `scripts/install_latest.sh`.
+
 ## 0.6.0
 
 - Added experimental Mission Control swipe-down minimize.
