@@ -211,6 +211,31 @@ final class AXWindowController {
         return false
     }
 
+    func minimize(_ window: AXWindowSnapshot) -> Bool {
+        Logger.info("Attempting to minimize AX window with native minimize button: \(window.debugSummary)")
+
+        if let minimizeButton = elementAttribute(window.element, kAXMinimizeButtonAttribute as CFString) {
+            let pressResult = AXUIElementPerformAction(minimizeButton, kAXPressAction as CFString)
+            if pressResult == .success {
+                Logger.info("Pressed AX minimize button successfully")
+                return true
+            }
+
+            Logger.warning("AX minimize button press failed. AXError=\(pressResult.rawValue)")
+        } else {
+            Logger.warning("AX minimize button attribute is unavailable")
+        }
+
+        let setResult = AXUIElementSetAttributeValue(window.element, kAXMinimizedAttribute as CFString, kCFBooleanTrue)
+        if setResult == .success {
+            Logger.info("Set AXMinimized=true successfully")
+            return true
+        }
+
+        Logger.error("Unable to minimize matched AX window. AXError=\(setResult.rawValue)")
+        return false
+    }
+
     func closeButtonDiagnostics(for window: AXWindowSnapshot) -> AXCloseButtonDiagnostics {
         guard let closeButton = elementAttribute(window.element, kAXCloseButtonAttribute as CFString) else {
             return AXCloseButtonDiagnostics(exists: false, supportsPress: false, actions: [])

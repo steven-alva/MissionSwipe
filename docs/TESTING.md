@@ -21,13 +21,29 @@ Expected logs:
 3. Hover a window thumbnail.
 4. Swipe up on the trackpad.
 5. Confirm only the hovered thumbnail closes.
-6. Use `Copy Last Close Report` from the menu.
+6. Use `Copy Last Action Report` from the menu.
 
 Expected logs:
 
-- `Swipe-up preflight accepted`
+- `Swipe gesture preflight accepted`
 - `Trackpad swipe-up detected`
 - `Mission Control close succeeded`
+
+## Mission Control Minimize
+
+1. Enable `Enable Swipe Down to Minimize (Experimental)`.
+2. Open Mission Control.
+3. Hover a window thumbnail.
+4. Swipe down on the trackpad.
+5. Confirm the hovered thumbnail minimizes or disappears from the Mission Control layout.
+6. Use `Copy Last Action Report` from the menu.
+
+Expected logs:
+
+- `Swipe gesture preflight accepted`
+- `Trackpad swipe-down detected`
+- `Pressed AX minimize button successfully`
+- `Mission Control minimize succeeded`
 
 ## Debug Logs
 

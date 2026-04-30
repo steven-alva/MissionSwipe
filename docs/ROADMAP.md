@@ -2,9 +2,9 @@
 
 ## Near Term
 
-- Add an in-app diagnostics panel for recent close attempts.
+- Add an in-app diagnostics panel for recent close/minimize attempts.
 - Make swipe threshold and cooldown configurable.
-- Persist a small ring buffer of recent close reports.
+- Persist a small ring buffer of recent action reports.
 - Reduce console logging further for non-debug builds.
 
 ## Later

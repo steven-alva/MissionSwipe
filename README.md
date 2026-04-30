@@ -1,10 +1,10 @@
 # MissionSwipe
 
-MissionSwipe is a macOS AppKit prototype menu bar app. Its main path is now Mission Control only: hover a Mission Control window thumbnail, then close it with `Control + Option + W` or a trackpad swipe-up gesture.
+MissionSwipe is a macOS AppKit prototype menu bar app. Its main path is Mission Control only: hover a Mission Control window thumbnail, then close it with `Control + Option + W` or a trackpad swipe-up gesture. MVP 0.6 also includes an experimental swipe-down minimize gesture.
 
-## Current version: MVP 0.5
+## Current version: MVP 0.6
 
-MVP 0.5 keeps the product boundary narrow: closing hovered Mission Control thumbnails, with less runtime noise and a small set of diagnostics for validating the gesture backend. Normal desktop window closing is not part of the workflow.
+MVP 0.6 keeps the product boundary narrow: acting on hovered Mission Control thumbnails while normal desktop windows stay untouched. Swipe-down minimize is experimental and off by default.
 
 Supported today:
 
@@ -14,9 +14,10 @@ Supported today:
 - Mission Control likely-active detection using public CGWindowList heuristics
 - Conservative Mission Control matching with confidence scoring
 - Trackpad swipe-up to close while Mission Control is active
+- Experimental trackpad swipe-down to minimize while Mission Control is active
 - Normal desktop hotkey/scroll safety rejection
 - Debug logging toggle, default off
-- Copy last successful close report to the clipboard
+- Copy last successful action report to the clipboard
 - Debug menu actions for CG and AX diagnostics
 - Concise success logs, with full window dumps reserved for failures or manual debug actions
 
@@ -46,7 +47,7 @@ scripts/build_app.sh
 This creates:
 
 - `dist/MissionSwipe.app`
-- `dist/MissionSwipe-0.5.0-macos.zip`
+- `dist/MissionSwipe-0.6.0-macos.zip`
 
 The script builds a universal app for Apple Silicon and Intel Macs by default. For a faster local-only build, run:
 
@@ -105,8 +106,9 @@ Having to run `tccutil reset` after every rebuild is a sign that macOS sees the 
 - `Close Mission Control Window`: runs the same Mission-Control-only close workflow as the hotkey.
 - `Enable Mission Control Close`: toggles `EnableMissionControlMode`. Default is on.
 - `Enable Swipe Up to Close`: toggles `EnableSwipeUpToClose`. Default is on.
+- `Enable Swipe Down to Minimize (Experimental)`: toggles `EnableSwipeDownToMinimize`. Default is off.
 - `Debug Logging`: toggles verbose `[DEBUG]` logs. Default is off.
-- `Copy Last Close Report`: copies the last successful Mission Control close summary to the clipboard.
+- `Copy Last Action Report`: copies the last successful Mission Control close/minimize summary to the clipboard.
 - `Dump Window List`: logs all current `CGWindowListCopyWindowInfo` entries.
 - `Dump AX Windows`: logs AX windows for visible app PIDs.
 - `Check Accessibility Permission`: refreshes the menu status line.
@@ -142,11 +144,18 @@ When `Control + Option + W` is pressed:
 
 Low or medium confidence Mission Control matches are rejected and logged. That is expected while we learn what macOS exposes on your machine.
 
-## Trackpad swipe-up behavior
+## Trackpad gesture behavior
 
-MVP 0.4 installs a listen-only public `CGEventTap` for `.scrollWheel` events. If the event tap cannot be installed, it falls back to `NSEvent.addGlobalMonitorForEvents`. It watches trackpad-like scroll events, accumulates vertical and horizontal deltas over a short window, and detects a single swipe-up intent.
+MissionSwipe installs a listen-only public `CGEventTap` for `.scrollWheel` events. If the event tap cannot be installed, it falls back to `NSEvent.addGlobalMonitorForEvents`. It watches trackpad-like scroll events, accumulates vertical and horizontal deltas over a short window, and detects a single vertical swipe intent.
 
-Safety rule: swipe-up close only runs while Mission Control is detected. Normal desktop scrolling is ignored.
+Safety rule: swipe gestures only run while Mission Control is detected. Normal desktop scrolling is ignored.
+
+Gesture mapping:
+
+- Swipe up: close hovered Mission Control thumbnail.
+- Swipe down: minimize hovered Mission Control thumbnail. This is experimental and disabled by default.
+
+Minimize uses the native AX minimize button first. If macOS chooses to play the system minimize animation from Mission Control, MissionSwipe lets that happen. If Mission Control only refreshes the thumbnail layout, that is also accepted behavior.
 
 The detector now performs a Mission Control preflight before it starts accumulating a scroll gesture. If the preflight is not at least medium confidence, the gesture is not armed and the scroll is ignored. This prevents ordinary desktop scrolling, such as scrolling Xcode logs, from reaching the close workflow.
 
@@ -191,8 +200,11 @@ The direction is currently inverted because the test machine reports physical tw
 10. Hover over a window thumbnail.
 11. Swipe up on the trackpad.
 12. Confirm one swipe closes at most one window.
-13. Use `Copy Last Close Report` and confirm it matches the closed app/window.
-14. Check the Xcode console logs.
+13. Enable `Enable Swipe Down to Minimize (Experimental)`.
+14. Open Mission Control, hover over another thumbnail, and swipe down.
+15. Confirm the thumbnail minimizes or disappears from the Mission Control layout.
+16. Use `Copy Last Action Report` and confirm it matches the closed/minimized app/window.
+17. Check the Xcode console logs.
 
 Useful log lines:
 
@@ -203,7 +215,9 @@ Useful log lines:
 - `AX match for CG id=...`
 - `Mission Control combined confidence=...`
 - `Mission Control close succeeded: ...`
+- `Mission Control minimize succeeded: ...`
 - `Trackpad swipe-up detected`
+- `Trackpad swipe-down detected`
 - `Mission Control not active; ignoring close request`
 - `Trackpad swipe preflight rejected`
 - `Mission Control ranked and thumbnail AX matches disagree`
@@ -223,7 +237,8 @@ Useful lines when `Debug Logging` is on:
 - Use `Dump AX Windows` while normal app windows are visible. Inspect AX title, position, size, role/subrole, close button availability, and close button actions.
 - If Mission Control is not detected, use `Dump Window List` and look for Dock/SystemUIServer overlay entries.
 - If Mission Control is detected but no close happens, inspect the geometry candidate scores and the combined confidence.
-- If swipe does nothing, confirm `Enable Swipe Up to Close` is checked. Turn on `Debug Logging` if you need raw `Trackpad scroll event` lines.
+- If swipe-up does nothing, confirm `Enable Swipe Up to Close` is checked. Turn on `Debug Logging` if you need raw `Trackpad scroll event` lines.
+- If swipe-down does nothing, confirm `Enable Swipe Down to Minimize (Experimental)` is checked.
 - If swipe logs appear but do not close, search for `Mission Control not active; ignoring close request`.
 - If normal desktop scrolling appears to arm the gesture, search for `Trackpad swipe preflight rejected`; normal scrolling should stop there.
 - If the wrong swipe direction triggers, flip `invertSwipeDirection` in `TrackpadGestureDetector.swift`.
@@ -240,7 +255,9 @@ Useful lines when `Debug Logging` is on:
 - Swipe direction may need inversion depending on natural scrolling and macOS event delivery.
 - Trackpad scroll events may behave differently across macOS versions or input devices.
 - Gesture close only works while Mission Control is detected.
-- A single physical swipe should close only one window because the detector enters a cooldown after triggering.
+- Gesture minimize only works while Mission Control is detected and the experimental menu item is enabled.
+- A single physical swipe should affect only one window because the detector enters a cooldown after triggering.
+- The macOS "magic" minimize effect is controlled by Dock/WindowServer. MissionSwipe presses the native minimize button, but Mission Control may still choose to simply refresh the thumbnail layout.
 - If same-app windows have identical titles and nearly identical geometry, AX matching may need the ranked Mission Control order fallback.
 - Some apps hide window titles or report different CG and AX geometry.
 - Apps may show an unsaved changes confirmation dialog after the close button is pressed.
@@ -249,10 +266,10 @@ Useful lines when `Debug Logging` is on:
 
 ## Next milestone
 
-Use the MVP 0.5 logs to tune the Mission Control-only gesture backend:
+Use the MVP 0.6 logs to tune the Mission Control-only gesture backend:
 
 - Add a compact in-app diagnostics panel instead of relying only on Xcode console output.
 - Make the swipe threshold configurable from the menu.
-- Persist a small ring buffer of recent close attempts for support/debugging.
+- Persist a small ring buffer of recent close/minimize attempts for support/debugging.
 - Add a lightweight performance counter for Mission Control detections per minute.
 - Keep improving same-app, same-title AX matching without re-enabling normal desktop close.

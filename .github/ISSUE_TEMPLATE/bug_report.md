@@ -25,4 +25,4 @@ assignees: ""
 
 ## Logs
 
-Paste the relevant lines, or include the `Copy Last Close Report` output.
+Paste the relevant lines, or include the `Copy Last Action Report` output.

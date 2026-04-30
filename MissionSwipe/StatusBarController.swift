@@ -4,6 +4,7 @@ final class StatusBarController: NSObject {
     var onCloseWindow: (() -> Void)?
     var onToggleMissionControlMode: ((Bool) -> Void)?
     var onToggleSwipeUpToClose: ((Bool) -> Void)?
+    var onToggleSwipeDownToMinimize: ((Bool) -> Void)?
     var onToggleDebugLogging: ((Bool) -> Void)?
     var onDumpWindowList: (() -> Void)?
     var onDumpAXWindows: (() -> Void)?
@@ -16,6 +17,7 @@ final class StatusBarController: NSObject {
     private let permissionStatusItem: NSMenuItem
     private let missionControlModeItem: NSMenuItem
     private let swipeUpToCloseItem: NSMenuItem
+    private let swipeDownToMinimizeItem: NSMenuItem
     private let debugLoggingItem: NSMenuItem
 
     override init() {
@@ -23,6 +25,7 @@ final class StatusBarController: NSObject {
         permissionStatusItem = NSMenuItem(title: "Accessibility: Checking...", action: nil, keyEquivalent: "")
         missionControlModeItem = NSMenuItem(title: "Enable Mission Control Close", action: #selector(toggleMissionControlMode), keyEquivalent: "")
         swipeUpToCloseItem = NSMenuItem(title: "Enable Swipe Up to Close", action: #selector(toggleSwipeUpToClose), keyEquivalent: "")
+        swipeDownToMinimizeItem = NSMenuItem(title: "Enable Swipe Down to Minimize (Experimental)", action: #selector(toggleSwipeDownToMinimize), keyEquivalent: "")
         debugLoggingItem = NSMenuItem(title: "Debug Logging", action: #selector(toggleDebugLogging), keyEquivalent: "")
 
         super.init()
@@ -43,6 +46,10 @@ final class StatusBarController: NSObject {
 
     func updateSwipeUpToClose(isEnabled: Bool) {
         swipeUpToCloseItem.state = isEnabled ? .on : .off
+    }
+
+    func updateSwipeDownToMinimize(isEnabled: Bool) {
+        swipeDownToMinimizeItem.state = isEnabled ? .on : .off
     }
 
     func updateDebugLogging(isEnabled: Bool) {
@@ -79,13 +86,17 @@ final class StatusBarController: NSObject {
         swipeUpToCloseItem.state = .on
         menu.addItem(swipeUpToCloseItem)
 
+        swipeDownToMinimizeItem.target = self
+        swipeDownToMinimizeItem.state = .off
+        menu.addItem(swipeDownToMinimizeItem)
+
         menu.addItem(.separator())
 
         debugLoggingItem.target = self
         debugLoggingItem.state = .off
         menu.addItem(debugLoggingItem)
 
-        let copyLastCloseReportItem = NSMenuItem(title: "Copy Last Close Report", action: #selector(copyLastCloseReport), keyEquivalent: "")
+        let copyLastCloseReportItem = NSMenuItem(title: "Copy Last Action Report", action: #selector(copyLastCloseReport), keyEquivalent: "")
         copyLastCloseReportItem.target = self
         menu.addItem(copyLastCloseReportItem)
 
@@ -130,6 +141,12 @@ final class StatusBarController: NSObject {
         let newValue = swipeUpToCloseItem.state != .on
         updateSwipeUpToClose(isEnabled: newValue)
         onToggleSwipeUpToClose?(newValue)
+    }
+
+    @objc private func toggleSwipeDownToMinimize() {
+        let newValue = swipeDownToMinimizeItem.state != .on
+        updateSwipeDownToMinimize(isEnabled: newValue)
+        onToggleSwipeDownToMinimize?(newValue)
     }
 
     @objc private func toggleDebugLogging() {

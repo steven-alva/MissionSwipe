@@ -11,11 +11,14 @@ final class TrackpadGestureDetector {
     }
 
     var onSwipeUpDetected: (() -> Void)?
+    var onSwipeDownDetected: (() -> Void)?
     var shouldBeginTracking: (() -> Bool)?
+    var detectsSwipeUp: Bool = true
+    var detectsSwipeDown: Bool = false
 
     var isEnabled: Bool = true {
         didSet {
-            Logger.info("Trackpad swipe-up detector enabled=\(isEnabled)")
+            Logger.info("Trackpad gesture detector enabled=\(isEnabled)")
             if !isEnabled {
                 reset(reason: "detector disabled")
             }
@@ -129,7 +132,7 @@ final class TrackpadGestureDetector {
         runLoopSource = source
         CFRunLoopAddSource(CFRunLoopGetMain(), source, .commonModes)
         CGEvent.tapEnable(tap: tap, enable: true)
-        Logger.info("Installed CGEventTap listen-only scrollWheel monitor for trackpad swipe-up prototype")
+        Logger.info("Installed CGEventTap listen-only scrollWheel monitor for trackpad gesture prototype")
     }
 
     private func installNSEventFallback() {
@@ -215,11 +218,14 @@ final class TrackpadGestureDetector {
 
         let horizontalLimit = min(Constants.maxHorizontalAbsolute, abs(accumulatedY) * Constants.maxHorizontalRatio)
         let horizontalIsSmall = abs(accumulatedX) <= max(20, horizontalLimit)
-        let didReachVerticalThreshold = accumulatedY >= Constants.triggerThresholdY
-        let looksLikeSwipeUp = didReachVerticalThreshold && horizontalIsSmall
+        let didReachUpThreshold = accumulatedY >= Constants.triggerThresholdY
+        let didReachDownThreshold = accumulatedY <= -Constants.triggerThresholdY
+        let looksLikeSwipeUp = didReachUpThreshold && horizontalIsSmall && detectsSwipeUp
+        let looksLikeSwipeDown = didReachDownThreshold && horizontalIsSmall && detectsSwipeDown
+        let didTrigger = looksLikeSwipeUp || looksLikeSwipeDown
 
-        let accumulationMessage = "Trackpad swipe accumulation: accumulatedY=\(format(accumulatedY)), accumulatedX=\(format(accumulatedX)), interpreted=\(interpretedDirection), verticalThreshold=\(didReachVerticalThreshold), horizontalSmall=\(horizontalIsSmall), source=\(source), momentum=\(hasMomentum), trigger=\(looksLikeSwipeUp)"
-        if looksLikeSwipeUp {
+        let accumulationMessage = "Trackpad swipe accumulation: accumulatedY=\(format(accumulatedY)), accumulatedX=\(format(accumulatedX)), interpreted=\(interpretedDirection), upThreshold=\(didReachUpThreshold), downThreshold=\(didReachDownThreshold), horizontalSmall=\(horizontalIsSmall), source=\(source), momentum=\(hasMomentum), trigger=\(didTrigger)"
+        if didTrigger {
             Logger.info(accumulationMessage)
         } else {
             Logger.debug(accumulationMessage)
@@ -234,8 +240,13 @@ final class TrackpadGestureDetector {
             return
         }
 
-        if accumulatedY <= -Constants.triggerThresholdY {
-            Logger.info("Trackpad gesture interpreted as swipe down; not closing")
+        if looksLikeSwipeDown {
+            state = .triggered
+            cancelScheduledReset()
+            Logger.info("Trackpad swipe-down detected; firing callback once for this gesture")
+            onSwipeDownDetected?()
+            beginCooldown(reason: "swipe-down triggered", duration: Constants.cooldown)
+            return
         }
 
         if phaseEndedOrCancelled(phaseRaw) || phaseEndedOrCancelled(momentumPhaseRaw) {

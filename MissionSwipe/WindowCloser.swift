@@ -3,6 +3,29 @@ import CoreGraphics
 import Foundation
 
 final class WindowCloser {
+    private enum MissionControlWindowAction {
+        case close
+        case minimize
+
+        var verb: String {
+            switch self {
+            case .close:
+                return "close"
+            case .minimize:
+                return "minimize"
+            }
+        }
+
+        var successPrefix: String {
+            switch self {
+            case .close:
+                return "Mission Control close succeeded"
+            case .minimize:
+                return "Mission Control minimize succeeded"
+            }
+        }
+    }
+
     private struct SelectedMissionControlAXMatch {
         let match: AXWindowMatch
         let source: String
@@ -18,10 +41,10 @@ final class WindowCloser {
     private let missionControlCloseThreshold: MatchingConfidence = .high
     private let swipePreflightReuseInterval: TimeInterval = 0.45
     private let swipePreflightReuseDistance: CGFloat = 24
-    private var preparedSwipeClose: (mousePoint: CGPoint, detection: MissionControlDetection, createdAt: Date)?
+    private var preparedSwipeAction: (mousePoint: CGPoint, detection: MissionControlDetection, createdAt: Date)?
     private var lastSwipePreflight: (mousePoint: CGPoint, detection: MissionControlDetection, createdAt: Date, accepted: Bool)?
 
-    private(set) var lastCloseReport: String?
+    private(set) var lastActionReport: String?
 
     init(
         permissionManager: AccessibilityPermissionManager = AccessibilityPermissionManager(),
@@ -40,15 +63,23 @@ final class WindowCloser {
     }
 
     func closeMissionControlWindowUnderMouseIfActive(usePreparedSwipeDetection: Bool = false) {
-        Logger.info("Starting Mission-Control-only close-window-under-mouse workflow")
+        performMissionControlWindowAction(.close, usePreparedSwipeDetection: usePreparedSwipeDetection)
+    }
+
+    func minimizeMissionControlWindowUnderMouseIfActive(usePreparedSwipeDetection: Bool = false) {
+        performMissionControlWindowAction(.minimize, usePreparedSwipeDetection: usePreparedSwipeDetection)
+    }
+
+    private func performMissionControlWindowAction(_ action: MissionControlWindowAction, usePreparedSwipeDetection: Bool) {
+        Logger.info("Starting Mission-Control-only \(action.verb)-window-under-mouse workflow")
 
         guard permissionManager.isAccessibilityTrusted else {
-            Logger.error("Accessibility permission is missing. Cannot inspect or close AX windows.")
+            Logger.error("Accessibility permission is missing. Cannot inspect or \(action.verb) AX windows.")
             return
         }
 
-        let prepared = usePreparedSwipeDetection ? preparedSwipeClose : nil
-        preparedSwipeClose = nil
+        let prepared = usePreparedSwipeDetection ? preparedSwipeAction : nil
+        preparedSwipeAction = nil
 
         let mousePoint: CGPoint
         let missionControlDetection: MissionControlDetection
@@ -64,17 +95,21 @@ final class WindowCloser {
         }
 
         guard missionControlDetection.isLikelyActive else {
-            Logger.info("Mission Control not active; ignoring close request. Detection: \(missionControlDetection.debugSummary)")
+            Logger.info("Mission Control not active; ignoring \(action.verb) request. Detection: \(missionControlDetection.debugSummary)")
             return
         }
 
-        closeInMissionControlMode(mousePoint: mousePoint, detection: missionControlDetection)
+        performInMissionControlMode(action, mousePoint: mousePoint, detection: missionControlDetection)
     }
 
     func prepareMissionControlSwipeClose() -> Bool {
+        prepareMissionControlSwipeAction()
+    }
+
+    func prepareMissionControlSwipeAction() -> Bool {
         guard permissionManager.isAccessibilityTrusted else {
-            Logger.error("Cannot arm swipe-up close because Accessibility permission is missing")
-            preparedSwipeClose = nil
+            Logger.error("Cannot arm swipe gesture because Accessibility permission is missing")
+            preparedSwipeAction = nil
             return false
         }
 
@@ -82,32 +117,32 @@ final class WindowCloser {
 
         if let cached = reusableSwipePreflight(for: mousePoint) {
             if cached.accepted {
-                preparedSwipeClose = (mousePoint: cached.mousePoint, detection: cached.detection, createdAt: Date())
-                Logger.debug("Swipe-up preflight reused accepted Mission Control detection: \(cached.detection.debugSummary)")
+                preparedSwipeAction = (mousePoint: cached.mousePoint, detection: cached.detection, createdAt: Date())
+                Logger.debug("Swipe gesture preflight reused accepted Mission Control detection: \(cached.detection.debugSummary)")
                 return true
             }
 
-            Logger.debug("Swipe-up preflight reused recent rejection: \(cached.detection.debugSummary)")
-            preparedSwipeClose = nil
+            Logger.debug("Swipe gesture preflight reused recent rejection: \(cached.detection.debugSummary)")
+            preparedSwipeAction = nil
             return false
         }
 
         let detection = missionControlDetector.detect(mousePoint: mousePoint)
 
         guard detection.isLikelyActive, detection.confidence >= .medium else {
-            Logger.info("Swipe-up preflight rejected. Detection: \(detection.debugSummary)")
-            preparedSwipeClose = nil
+            Logger.info("Swipe gesture preflight rejected. Detection: \(detection.debugSummary)")
+            preparedSwipeAction = nil
             lastSwipePreflight = (mousePoint: mousePoint, detection: detection, createdAt: Date(), accepted: false)
             return false
         }
 
-        preparedSwipeClose = (mousePoint: mousePoint, detection: detection, createdAt: Date())
+        preparedSwipeAction = (mousePoint: mousePoint, detection: detection, createdAt: Date())
         lastSwipePreflight = (mousePoint: mousePoint, detection: detection, createdAt: Date(), accepted: true)
-        Logger.info("Swipe-up preflight accepted. Prepared detection: \(detection.debugSummary)")
+        Logger.info("Swipe gesture preflight accepted. Prepared detection: \(detection.debugSummary)")
         return true
     }
 
-    private func closeInMissionControlMode(mousePoint: CGPoint, detection: MissionControlDetection) {
+    private func performInMissionControlMode(_ action: MissionControlWindowAction, mousePoint: CGPoint, detection: MissionControlDetection) {
         Logger.info("Mission Control mode active")
         Logger.info("Mission Control detection summary: \(detection.debugSummary)")
 
@@ -161,26 +196,34 @@ final class WindowCloser {
         }
 
         guard finalConfidence >= missionControlCloseThreshold else {
-            Logger.warning("Mission Control match confidence \(finalConfidence) is below safe threshold \(missionControlCloseThreshold). Not closing.")
+            Logger.warning("Mission Control match confidence \(finalConfidence) is below safe threshold \(missionControlCloseThreshold). Not performing \(action.verb).")
             Logger.warning("Rejected Mission Control target: CG={\(geometryMatch.debugSummary)}, AX={\(axMatch.debugSummary)}")
             debugDumper.dumpWindowList(entries: detection.entries, header: "Mission Control low-confidence diagnostics")
             return
         }
 
-        let didClose = axWindowController.close(axMatch.window)
-        if didClose {
+        let didPerform: Bool
+        switch action {
+        case .close:
+            didPerform = axWindowController.close(axMatch.window)
+        case .minimize:
+            didPerform = axWindowController.minimize(axMatch.window)
+        }
+
+        if didPerform {
             let summary = closeSummary(
+                action: action,
                 cgWindow: geometryMatch.candidate,
                 axMatch: axMatch,
                 axSource: selectedAXMatch.source,
                 geometryConfidence: geometryMatch.confidence,
                 finalConfidence: finalConfidence
             )
-            lastCloseReport = "Mission Control close succeeded: \(summary)"
-            Logger.info("Mission Control close succeeded: \(summary)")
+            lastActionReport = "\(action.successPrefix): \(summary)"
+            Logger.info("\(action.successPrefix): \(summary)")
             missionControlOverlayRefresher.refreshHoverFeedback(near: mousePoint)
         } else {
-            Logger.error("Mission Control close workflow failed without crashing or force quitting")
+            Logger.error("Mission Control \(action.verb) workflow failed without crashing or force quitting")
         }
     }
 
@@ -343,6 +386,7 @@ final class WindowCloser {
     }
 
     private func closeSummary(
+        action: MissionControlWindowAction,
         cgWindow: CGWindowCandidate,
         axMatch: AXWindowMatch,
         axSource: String,
@@ -350,6 +394,6 @@ final class WindowCloser {
         finalConfidence: MatchingConfidence
     ) -> String {
         let axFrameText = axMatch.window.frame.map { "\($0.integral)" } ?? "nil"
-        return "owner=\(cgWindow.ownerName), pid=\(cgWindow.ownerPID), cgID=\(cgWindow.windowID), cgOrder=\(cgWindow.orderIndex), axSource=\(axSource), axTitle=\"\(axMatch.window.title)\", axFrame=\(axFrameText), geometry=\(geometryConfidence), ax=\(axMatch.confidence), final=\(finalConfidence)"
+        return "action=\(action.verb), owner=\(cgWindow.ownerName), pid=\(cgWindow.ownerPID), cgID=\(cgWindow.windowID), cgOrder=\(cgWindow.orderIndex), axSource=\(axSource), axTitle=\"\(axMatch.window.title)\", axFrame=\(axFrameText), geometry=\(geometryConfidence), ax=\(axMatch.confidence), final=\(finalConfidence)"
     }
 }

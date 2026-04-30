@@ -6,6 +6,7 @@ final class AppConfiguration {
     private let defaults: UserDefaults
     private let missionControlModeKey = "EnableMissionControlMode"
     private let swipeUpToCloseKey = "EnableSwipeUpToClose"
+    private let swipeDownToMinimizeKey = "EnableSwipeDownToMinimize"
     private let debugLoggingKey = "EnableDebugLogging"
 
     init(defaults: UserDefaults = .standard) {
@@ -35,6 +36,19 @@ final class AppConfiguration {
         set {
             defaults.set(newValue, forKey: swipeUpToCloseKey)
             Logger.info("EnableSwipeUpToClose set to \(newValue)")
+        }
+    }
+
+    var enableSwipeDownToMinimize: Bool {
+        get {
+            if defaults.object(forKey: swipeDownToMinimizeKey) == nil {
+                return false
+            }
+            return defaults.bool(forKey: swipeDownToMinimizeKey)
+        }
+        set {
+            defaults.set(newValue, forKey: swipeDownToMinimizeKey)
+            Logger.info("EnableSwipeDownToMinimize set to \(newValue)")
         }
     }
 

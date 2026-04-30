@@ -24,8 +24,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
         statusBarController.onToggleSwipeUpToClose = { [weak self] isEnabled in
             self?.configuration.enableSwipeUpToClose = isEnabled
-            self?.trackpadGestureDetector.isEnabled = isEnabled
+            self?.updateTrackpadGestureDetectorEnabledState()
             self?.statusBarController?.updateSwipeUpToClose(isEnabled: isEnabled)
+        }
+        statusBarController.onToggleSwipeDownToMinimize = { [weak self] isEnabled in
+            self?.configuration.enableSwipeDownToMinimize = isEnabled
+            self?.updateTrackpadGestureDetectorEnabledState()
+            self?.statusBarController?.updateSwipeDownToMinimize(isEnabled: isEnabled)
         }
         statusBarController.onToggleDebugLogging = { [weak self] isEnabled in
             self?.configuration.enableDebugLogging = isEnabled
@@ -53,6 +58,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         refreshPermissionStatus(showPromptWhenMissing: true)
         statusBarController.updateMissionControlMode(isEnabled: configuration.enableMissionControlMode)
         statusBarController.updateSwipeUpToClose(isEnabled: configuration.enableSwipeUpToClose)
+        statusBarController.updateSwipeDownToMinimize(isEnabled: configuration.enableSwipeDownToMinimize)
         statusBarController.updateDebugLogging(isEnabled: configuration.enableDebugLogging)
         registerHotkey()
         startTrackpadGestureDetector()
@@ -86,30 +92,41 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     private func startTrackpadGestureDetector() {
-        trackpadGestureDetector.isEnabled = configuration.enableSwipeUpToClose
+        updateTrackpadGestureDetectorEnabledState()
         trackpadGestureDetector.shouldBeginTracking = { [weak self] in
             guard let self else {
                 return false
             }
 
-            guard self.configuration.enableSwipeUpToClose else {
-                Logger.info("Swipe-up close is disabled; refusing to arm gesture")
+            guard self.configuration.enableSwipeUpToClose || self.configuration.enableSwipeDownToMinimize else {
+                Logger.info("Swipe gestures are disabled; refusing to arm gesture")
                 return false
             }
 
             guard self.configuration.enableMissionControlMode else {
-                Logger.info("Mission Control mode is disabled; refusing to arm swipe-up gesture")
+                Logger.info("Mission Control mode is disabled; refusing to arm swipe gesture")
                 return false
             }
 
-            return self.windowCloser.prepareMissionControlSwipeClose()
+            return self.windowCloser.prepareMissionControlSwipeAction()
         }
         trackpadGestureDetector.onSwipeUpDetected = { [weak self] in
             DispatchQueue.main.async {
                 self?.closeMissionControlWindowUnderMouseFromSwipe()
             }
         }
+        trackpadGestureDetector.onSwipeDownDetected = { [weak self] in
+            DispatchQueue.main.async {
+                self?.minimizeMissionControlWindowUnderMouseFromSwipe()
+            }
+        }
         trackpadGestureDetector.start()
+    }
+
+    private func updateTrackpadGestureDetectorEnabledState() {
+        trackpadGestureDetector.detectsSwipeUp = configuration.enableSwipeUpToClose
+        trackpadGestureDetector.detectsSwipeDown = configuration.enableSwipeDownToMinimize
+        trackpadGestureDetector.isEnabled = configuration.enableSwipeUpToClose || configuration.enableSwipeDownToMinimize
     }
 
     private func closeMissionControlWindowUnderMouseFromSwipe() {
@@ -128,15 +145,31 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         refreshPermissionStatus(showPromptWhenMissing: false)
     }
 
+    private func minimizeMissionControlWindowUnderMouseFromSwipe() {
+        guard configuration.enableSwipeDownToMinimize else {
+            Logger.info("Swipe-down minimize is disabled; ignoring detected gesture")
+            return
+        }
+
+        guard configuration.enableMissionControlMode else {
+            Logger.info("Mission Control mode is disabled; ignoring swipe-down minimize")
+            return
+        }
+
+        Logger.info("Minimize requested by trackpad swipe-down")
+        windowCloser.minimizeMissionControlWindowUnderMouseIfActive(usePreparedSwipeDetection: true)
+        refreshPermissionStatus(showPromptWhenMissing: false)
+    }
+
     private func copyLastCloseReport() {
-        guard let report = windowCloser.lastCloseReport else {
-            Logger.info("No Mission Control close report is available yet")
+        guard let report = windowCloser.lastActionReport else {
+            Logger.info("No Mission Control action report is available yet")
             return
         }
 
         NSPasteboard.general.clearContents()
         NSPasteboard.general.setString(report, forType: .string)
-        Logger.info("Copied last Mission Control close report to clipboard")
+        Logger.info("Copied last Mission Control action report to clipboard")
     }
 
     private func refreshPermissionStatus(showPromptWhenMissing: Bool) {
