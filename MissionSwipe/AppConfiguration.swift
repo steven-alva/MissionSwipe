@@ -42,7 +42,7 @@ final class AppConfiguration {
     var enableSwipeDownToMinimize: Bool {
         get {
             if defaults.object(forKey: swipeDownToMinimizeKey) == nil {
-                return false
+                return true
             }
             return defaults.bool(forKey: swipeDownToMinimizeKey)
         }

@@ -2,9 +2,9 @@
 
 MissionSwipe is a macOS AppKit prototype menu bar app. Its main path is Mission Control only: hover a Mission Control window thumbnail, then close it with `Control + Option + W` or a trackpad swipe-up gesture. MVP 0.6 also includes an experimental swipe-down minimize gesture.
 
-## Current version: MVP 0.6.2
+## Current version: MVP 0.6.3
 
-MVP 0.6 keeps the product boundary narrow: acting on hovered Mission Control thumbnails while normal desktop windows stay untouched. Swipe-down minimize is experimental and off by default.
+MVP 0.6 keeps the product boundary narrow: acting on hovered Mission Control thumbnails while normal desktop windows stay untouched. Swipe-down minimize is experimental and on by default for new installs.
 
 Supported today:
 
@@ -55,7 +55,7 @@ scripts/build_app.sh
 This creates:
 
 - `dist/MissionSwipe.app`
-- `dist/MissionSwipe-0.6.2-macos.zip`
+- `dist/MissionSwipe-0.6.3-macos.zip`
 
 The script builds a universal app for Apple Silicon and Intel Macs by default. For a faster local-only build, run:
 
@@ -114,7 +114,7 @@ Having to run `tccutil reset` after every rebuild is a sign that macOS sees the 
 - `Close Mission Control Window`: runs the same Mission-Control-only close workflow as the hotkey.
 - `Enable Mission Control Close`: toggles `EnableMissionControlMode`. Default is on.
 - `Enable Swipe Up to Close`: toggles `EnableSwipeUpToClose`. Default is on.
-- `Enable Swipe Down to Minimize (Experimental)`: toggles `EnableSwipeDownToMinimize`. Default is off.
+- `Enable Swipe Down to Minimize (Experimental)`: toggles `EnableSwipeDownToMinimize`. Default is on for new installs.
 - `Debug Logging`: toggles verbose `[DEBUG]` logs. Default is off.
 - `Copy Last Action Report`: copies the last successful Mission Control close/minimize summary to the clipboard.
 - `Dump Window List`: logs all current `CGWindowListCopyWindowInfo` entries.
@@ -161,7 +161,7 @@ Safety rule: swipe gestures only run while Mission Control is detected. Normal d
 Gesture mapping:
 
 - Swipe up: close hovered Mission Control thumbnail.
-- Swipe down: minimize hovered Mission Control thumbnail. This is experimental and disabled by default.
+- Swipe down: minimize hovered Mission Control thumbnail. This is experimental and enabled by default for new installs.
 
 Minimize uses the native AX minimize button first. If macOS chooses to play the system minimize animation from Mission Control, MissionSwipe lets that happen. If Mission Control only refreshes the thumbnail layout, that is also accepted behavior. After a successful minimize, MissionSwipe briefly guards the old thumbnail area and suppresses one click on the stale blue hover frame so the window is less likely to restore immediately.
 
@@ -208,7 +208,7 @@ The direction is currently inverted because the test machine reports physical tw
 10. Hover over a window thumbnail.
 11. Swipe up on the trackpad.
 12. Confirm one swipe closes at most one window.
-13. Enable `Enable Swipe Down to Minimize (Experimental)`.
+13. Confirm `Enable Swipe Down to Minimize (Experimental)` is checked.
 14. Open Mission Control, hover over another thumbnail, and swipe down.
 15. Confirm the thumbnail minimizes or disappears from the Mission Control layout.
 16. Use `Copy Last Action Report` and confirm it matches the closed/minimized app/window.

@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+## 0.6.3
+
+- Changed swipe-down minimize to default on for new installs.
+
 ## 0.6.2
 
 - Added lightweight Terminal install/update script at `scripts/install_latest.sh`.
