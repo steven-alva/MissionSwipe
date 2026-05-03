@@ -39,7 +39,7 @@ The current public build is signed when a local Apple Development identity is av
 Terminal install/update:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/steven-alva/MissionSwipe/main/scripts/install_latest.sh | bash
+curl -fsSL https://github.com/steven-alva/MissionSwipe/raw/refs/heads/main/scripts/install_latest.sh | bash
 ```
 
 The command always installs the latest GitHub release. If MissionSwipe is already installed, it updates that copy in place and removes duplicate `MissionSwipe.app` copies where possible. For new installs, it uses `/Applications`, falls back to `~/Applications` if needed, and opens MissionSwipe after installation.
