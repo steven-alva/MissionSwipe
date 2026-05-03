@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- Updated the Terminal installer to update an existing MissionSwipe.app in place and remove duplicate MissionSwipe.app copies where possible.
 - Updated the Terminal installer to avoid the GitHub Releases API, reducing unauthenticated `403` failures on some networks.
 
 ## 0.6.3

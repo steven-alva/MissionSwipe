@@ -42,7 +42,7 @@ Terminal install/update:
 curl -fsSL https://raw.githubusercontent.com/steven-alva/MissionSwipe/main/scripts/install_latest.sh | bash
 ```
 
-The command always installs the latest GitHub release. By default it installs to `/Applications`, falls back to `~/Applications` if needed, and opens MissionSwipe after installation.
+The command always installs the latest GitHub release. If MissionSwipe is already installed, it updates that copy in place and removes duplicate `MissionSwipe.app` copies where possible. For new installs, it uses `/Applications`, falls back to `~/Applications` if needed, and opens MissionSwipe after installation.
 
 ## Build the app locally
 
