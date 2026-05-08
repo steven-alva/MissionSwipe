@@ -35,14 +35,15 @@ final class MissionControlDetector {
 
         var score = 0
         var reasons: [String] = []
+        var explicitMissionControlSignals = 0
 
         if let frontmostApplication = NSWorkspace.shared.frontmostApplication {
             let frontmostName = frontmostApplication.localizedName ?? ""
             let frontmostBundleIdentifier = frontmostApplication.bundleIdentifier ?? ""
 
             if frontmostBundleIdentifier == "com.apple.dock" || frontmostName == "Dock" || frontmostName == "程序坞" {
-                score += 70
-                reasons.append("Dock is the frontmost application, which strongly suggests Mission Control/Expose")
+                score += 30
+                reasons.append("Dock is the frontmost application")
             }
         }
 
@@ -60,6 +61,16 @@ final class MissionControlDetector {
             }
             return (bounds.width * bounds.height) >= displayArea * 0.20
         }
+        let dockFullDisplayOverlayEntries = dockOverlayEntries.filter { entry in
+            guard let bounds = entry.bounds else {
+                return false
+            }
+            return isFullDisplayOverlay(bounds, displayBounds: displayBounds)
+        }
+        let normalAppWindows = windowEnumerator.visibleWindowCandidates(from: entries)
+        let missionControlThumbnailCandidates = normalAppWindows.filter { candidate in
+            isLikelyMissionControlThumbnail(candidate.bounds, displayBounds: displayBounds)
+        }
 
         for entry in entries.prefix(8) {
             let title = entry.title.lowercased()
@@ -68,6 +79,7 @@ final class MissionControlDetector {
             if owner == "dock",
                title.contains("mission") || title.contains("expose") || title.contains("spaces") {
                 score += 80
+                explicitMissionControlSignals += 1
                 reasons.append("Dock owns an explicit Mission Control/Spaces related window near the top of the list: \(entry.fullDebugSummary)")
             }
 
@@ -93,6 +105,17 @@ final class MissionControlDetector {
             reasons.append("\(largeSystemOverlayEntries.count) large system overlay window(s) are visible")
         }
 
+        if !dockFullDisplayOverlayEntries.isEmpty {
+            let bonus = min(45, dockFullDisplayOverlayEntries.count * 18)
+            score += bonus
+            reasons.append("Dock has \(dockFullDisplayOverlayEntries.count) full-display overlay window(s)")
+        }
+
+        if missionControlThumbnailCandidates.count >= 2 {
+            score += 30
+            reasons.append("\(missionControlThumbnailCandidates.count) app window(s) look like Mission Control thumbnails")
+        }
+
         let topSystemOverlayCount = entries.prefix(5).filter { entry in
             guard let layer = entry.layer, layer > 0 else {
                 return false
@@ -105,10 +128,21 @@ final class MissionControlDetector {
             reasons.append("Multiple top z-order entries are system overlays")
         }
 
-        let normalAppWindowCount = windowEnumerator.visibleWindowCandidates(from: entries).count
+        let normalAppWindowCount = normalAppWindows.count
         if normalAppWindowCount == 0, !systemOverlayEntries.isEmpty {
             score += 15
             reasons.append("No normal app windows survived filtering while system overlays are visible")
+        }
+
+        let likelyActiveThreshold = 50
+        let hasMissionControlLayoutEvidence =
+            explicitMissionControlSignals > 0 ||
+            dockFullDisplayOverlayEntries.count >= 2 ||
+            (dockOverlayEntries.count >= 3 && missionControlThumbnailCandidates.count >= 2)
+
+        if score >= likelyActiveThreshold, !hasMissionControlLayoutEvidence {
+            score = min(score, likelyActiveThreshold - 1)
+            reasons.append("System overlays look Stage Manager-like; no Mission Control layout evidence found")
         }
 
         let confidence: MatchingConfidence
@@ -122,7 +156,6 @@ final class MissionControlDetector {
             confidence = .none
         }
 
-        let likelyActiveThreshold = 50
         return MissionControlDetection(
             isLikelyActive: score >= likelyActiveThreshold,
             score: score,
@@ -140,6 +173,33 @@ final class MissionControlDetector {
         ownerName == "控制中心" ||
         ownerName == "WindowServer" ||
         ownerName == "Window Server"
+    }
+
+    private func isFullDisplayOverlay(_ bounds: CGRect, displayBounds: CGRect) -> Bool {
+        let intersection = bounds.intersection(displayBounds)
+        guard !intersection.isNull, !intersection.isEmpty else {
+            return false
+        }
+
+        let displayArea = max(displayBounds.width * displayBounds.height, 1)
+        return (intersection.width * intersection.height) >= displayArea * 0.75
+    }
+
+    private func isLikelyMissionControlThumbnail(_ bounds: CGRect, displayBounds: CGRect) -> Bool {
+        let intersection = bounds.intersection(displayBounds)
+        guard !intersection.isNull, !intersection.isEmpty else {
+            return false
+        }
+
+        let displayArea = max(displayBounds.width * displayBounds.height, 1)
+        let areaRatio = (intersection.width * intersection.height) / displayArea
+        let widthRatio = intersection.width / max(displayBounds.width, 1)
+        let heightRatio = intersection.height / max(displayBounds.height, 1)
+
+        return areaRatio >= 0.04 &&
+            areaRatio <= 0.65 &&
+            widthRatio <= 0.90 &&
+            heightRatio <= 0.90
     }
 }
 

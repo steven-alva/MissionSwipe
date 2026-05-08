@@ -8,6 +8,7 @@ final class AppConfiguration {
     private let swipeUpToCloseKey = "EnableSwipeUpToClose"
     private let swipeDownToMinimizeKey = "EnableSwipeDownToMinimize"
     private let debugLoggingKey = "EnableDebugLogging"
+    private let hideStatusBarIconKey = "HideStatusBarIcon"
 
     init(defaults: UserDefaults = .standard) {
         self.defaults = defaults
@@ -59,6 +60,16 @@ final class AppConfiguration {
         set {
             defaults.set(newValue, forKey: debugLoggingKey)
             Logger.info("EnableDebugLogging set to \(newValue)")
+        }
+    }
+
+    var hideStatusBarIcon: Bool {
+        get {
+            defaults.bool(forKey: hideStatusBarIconKey)
+        }
+        set {
+            defaults.set(newValue, forKey: hideStatusBarIconKey)
+            Logger.info("HideStatusBarIcon set to \(newValue)")
         }
     }
 }

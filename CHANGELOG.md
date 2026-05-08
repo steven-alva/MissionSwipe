@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+## 0.6.4
+
+- Distinguish Stage Manager-like Dock overlays from Mission Control by requiring Mission Control layout evidence before arming close/minimize gestures.
+- Added a menu action to hide the MissionSwipe menu bar icon while keeping gestures running in the background.
 - Updated the Terminal installer to update an existing MissionSwipe.app in place and remove duplicate MissionSwipe.app copies where possible.
 - Updated the Terminal installer to avoid the GitHub Releases API, reducing unauthenticated `403` failures on some networks.
 

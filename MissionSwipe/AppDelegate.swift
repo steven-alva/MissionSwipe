@@ -11,10 +11,34 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         Logger.info("MissionSwipe launching")
+        NSApp.setActivationPolicy(.accessory)
 
-        let statusBarController = StatusBarController()
-        self.statusBarController = statusBarController
+        if configuration.hideStatusBarIcon {
+            Logger.info("Menu bar icon is hidden by user preference")
+        } else {
+            let statusBarController = StatusBarController()
+            self.statusBarController = statusBarController
+            configureStatusBarController(statusBarController)
+        }
 
+        guard refreshPermissionStatus(showPromptWhenMissing: true) else {
+            return
+        }
+        statusBarController?.updateMissionControlMode(isEnabled: configuration.enableMissionControlMode)
+        statusBarController?.updateSwipeUpToClose(isEnabled: configuration.enableSwipeUpToClose)
+        statusBarController?.updateSwipeDownToMinimize(isEnabled: configuration.enableSwipeDownToMinimize)
+        statusBarController?.updateDebugLogging(isEnabled: configuration.enableDebugLogging)
+        registerHotkey()
+        startTrackpadGestureDetector()
+    }
+
+    func applicationWillTerminate(_ notification: Notification) {
+        Logger.info("MissionSwipe terminating")
+        hotkeyManager.unregister()
+        trackpadGestureDetector.stop()
+    }
+
+    private func configureStatusBarController(_ statusBarController: StatusBarController) {
         statusBarController.onCloseWindow = { [weak self] in
             self?.closeMissionControlWindowUnderMouse(trigger: "menu item")
         }
@@ -51,25 +75,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         statusBarController.onRefreshPermission = { [weak self] in
             self?.refreshPermissionStatus(showPromptWhenMissing: false)
         }
+        statusBarController.onHideMenuBarIcon = { [weak self] in
+            self?.hideMenuBarIcon()
+        }
         statusBarController.onQuit = {
             NSApp.terminate(nil)
         }
-
-        guard refreshPermissionStatus(showPromptWhenMissing: true) else {
-            return
-        }
-        statusBarController.updateMissionControlMode(isEnabled: configuration.enableMissionControlMode)
-        statusBarController.updateSwipeUpToClose(isEnabled: configuration.enableSwipeUpToClose)
-        statusBarController.updateSwipeDownToMinimize(isEnabled: configuration.enableSwipeDownToMinimize)
-        statusBarController.updateDebugLogging(isEnabled: configuration.enableDebugLogging)
-        registerHotkey()
-        startTrackpadGestureDetector()
-    }
-
-    func applicationWillTerminate(_ notification: Notification) {
-        Logger.info("MissionSwipe terminating")
-        hotkeyManager.unregister()
-        trackpadGestureDetector.stop()
     }
 
     private func registerHotkey() {
@@ -172,6 +183,30 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         NSPasteboard.general.clearContents()
         NSPasteboard.general.setString(report, forType: .string)
         Logger.info("Copied last Mission Control action report to clipboard")
+    }
+
+    private func hideMenuBarIcon() {
+        NSApp.activate(ignoringOtherApps: true)
+
+        let alert = NSAlert()
+        alert.messageText = "Hide MissionSwipe menu bar icon?"
+        alert.informativeText = """
+        MissionSwipe will keep running in the background. To show the icon again later, run:
+
+        defaults write io.github.stevenalva.MissionSwipe HideStatusBarIcon -bool false; open -a MissionSwipe
+        """
+        alert.alertStyle = .informational
+        alert.addButton(withTitle: "Hide Icon")
+        alert.addButton(withTitle: "Cancel")
+
+        guard alert.runModal() == .alertFirstButtonReturn else {
+            return
+        }
+
+        configuration.hideStatusBarIcon = true
+        statusBarController?.removeStatusItem()
+        statusBarController = nil
+        Logger.info("MissionSwipe menu bar icon hidden by user")
     }
 
     @discardableResult

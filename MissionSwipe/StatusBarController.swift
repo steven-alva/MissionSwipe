@@ -11,6 +11,7 @@ final class StatusBarController: NSObject {
     var onCopyLastCloseReport: (() -> Void)?
     var onOpenAccessibilitySettings: (() -> Void)?
     var onRefreshPermission: (() -> Void)?
+    var onHideMenuBarIcon: (() -> Void)?
     var onQuit: (() -> Void)?
 
     private let statusItem: NSStatusItem
@@ -54,6 +55,10 @@ final class StatusBarController: NSObject {
 
     func updateDebugLogging(isEnabled: Bool) {
         debugLoggingItem.state = isEnabled ? .on : .off
+    }
+
+    func removeStatusItem() {
+        NSStatusBar.system.removeStatusItem(statusItem)
     }
 
     private func configureStatusItem() {
@@ -120,6 +125,10 @@ final class StatusBarController: NSObject {
 
         menu.addItem(.separator())
 
+        let hideMenuBarIconItem = NSMenuItem(title: "Hide Menu Bar Icon...", action: #selector(hideMenuBarIcon), keyEquivalent: "")
+        hideMenuBarIconItem.target = self
+        menu.addItem(hideMenuBarIconItem)
+
         let quitItem = NSMenuItem(title: "Quit MissionSwipe", action: #selector(quit), keyEquivalent: "q")
         quitItem.target = self
         menu.addItem(quitItem)
@@ -173,6 +182,10 @@ final class StatusBarController: NSObject {
 
     @objc private func refreshPermission() {
         onRefreshPermission?()
+    }
+
+    @objc private func hideMenuBarIcon() {
+        onHideMenuBarIcon?()
     }
 
     @objc private func quit() {

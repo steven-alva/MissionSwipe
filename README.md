@@ -2,13 +2,14 @@
 
 MissionSwipe is a macOS AppKit prototype menu bar app. Its main path is Mission Control only: hover a Mission Control window thumbnail, then close it with `Control + Option + W` or a trackpad swipe-up gesture. MVP 0.6 also includes an experimental swipe-down minimize gesture.
 
-## Current version: MVP 0.6.3
+## Current version: MVP 0.6.4
 
 MVP 0.6 keeps the product boundary narrow: acting on hovered Mission Control thumbnails while normal desktop windows stay untouched. Swipe-down minimize is experimental and on by default for new installs.
 
 Supported today:
 
 - AppKit menu bar app using `NSStatusItem`
+- Optional menu bar icon hiding for background-only use
 - Accessibility permission prompt and settings shortcut
 - Global hotkey: `Control + Option + W`
 - Mission Control likely-active detection using public CGWindowList heuristics
@@ -55,7 +56,7 @@ scripts/build_app.sh
 This creates:
 
 - `dist/MissionSwipe.app`
-- `dist/MissionSwipe-0.6.3-macos.zip`
+- `dist/MissionSwipe-0.6.4-macos.zip`
 
 The script builds a universal app for Apple Silicon and Intel Macs by default. For a faster local-only build, run:
 
@@ -121,6 +122,11 @@ Having to run `tccutil reset` after every rebuild is a sign that macOS sees the 
 - `Dump AX Windows`: logs AX windows for visible app PIDs.
 - `Check Accessibility Permission`: refreshes the menu status line.
 - `Open Accessibility Settings`: opens the Accessibility privacy pane.
+- `Hide Menu Bar Icon...`: hides the menu bar icon while keeping gestures running. Restore it with:
+
+  ```bash
+  defaults write io.github.stevenalva.MissionSwipe HideStatusBarIcon -bool false; open -a MissionSwipe
+  ```
 
 ## Desktop safety behavior
 
@@ -140,7 +146,7 @@ Mission Control integration is experimental. macOS does not expose Mission Contr
 When `Control + Option + W` is pressed:
 
 1. MissionSwipe logs the current mouse location.
-2. It checks whether Mission Control is likely active using public CGWindowList heuristics.
+2. It checks whether Mission Control is likely active using public CGWindowList heuristics, including Dock overlay windows and Mission Control thumbnail-layout evidence.
 3. If Mission Control is not likely active, it ignores the request and closes nothing.
 4. If Mission Control is likely active and `Enable Mission Control Close` is on, it logs `Mission Control mode active`.
 5. It keeps looking for real app windows even if the cursor is over Dock/SystemUIServer overlay windows.
@@ -150,7 +156,7 @@ When `Control + Option + W` is pressed:
 9. It closes automatically only if the combined confidence reaches the Mission Control safety threshold.
 10. After a successful Mission Control close, it posts a tiny synthetic mouse move to encourage Mission Control to refresh stale hover highlights.
 
-Low or medium confidence Mission Control matches are rejected and logged. That is expected while we learn what macOS exposes on your machine.
+Low or medium confidence Mission Control matches are rejected and logged. Stage Manager can create Dock-owned overlay windows that look similar to Mission Control at first glance, so MissionSwipe now requires Mission Control layout evidence before it arms close/minimize gestures.
 
 ## Trackpad gesture behavior
 
