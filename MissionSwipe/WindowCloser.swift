@@ -2,6 +2,22 @@ import ApplicationServices
 import CoreGraphics
 import Foundation
 
+enum MissionControlWindowActionResult {
+    case performed
+    case missionControlInactive
+    case noTargetInMissionControl
+    case rejectedInMissionControl
+    case permissionMissing
+    case failed
+}
+
+enum MissionControlSwipeLocation {
+    case windowTarget
+    case blankArea
+    case missionControlInactive
+    case permissionMissing
+}
+
 final class WindowCloser {
     private enum MissionControlWindowAction {
         case close
@@ -65,20 +81,22 @@ final class WindowCloser {
         self.missionControlClickGuard = missionControlClickGuard
     }
 
-    func closeMissionControlWindowUnderMouseIfActive(usePreparedSwipeDetection: Bool = false) {
+    @discardableResult
+    func closeMissionControlWindowUnderMouseIfActive(usePreparedSwipeDetection: Bool = false) -> MissionControlWindowActionResult {
         performMissionControlWindowAction(.close, usePreparedSwipeDetection: usePreparedSwipeDetection)
     }
 
-    func minimizeMissionControlWindowUnderMouseIfActive(usePreparedSwipeDetection: Bool = false) {
+    @discardableResult
+    func minimizeMissionControlWindowUnderMouseIfActive(usePreparedSwipeDetection: Bool = false) -> MissionControlWindowActionResult {
         performMissionControlWindowAction(.minimize, usePreparedSwipeDetection: usePreparedSwipeDetection)
     }
 
-    private func performMissionControlWindowAction(_ action: MissionControlWindowAction, usePreparedSwipeDetection: Bool) {
+    private func performMissionControlWindowAction(_ action: MissionControlWindowAction, usePreparedSwipeDetection: Bool) -> MissionControlWindowActionResult {
         Logger.info("Starting Mission-Control-only \(action.verb)-window-under-mouse workflow")
 
         guard permissionManager.isAccessibilityTrusted else {
             Logger.error("Accessibility permission is missing. Cannot inspect or \(action.verb) AX windows.")
-            return
+            return .permissionMissing
         }
 
         let prepared = usePreparedSwipeDetection ? preparedSwipeAction : nil
@@ -99,14 +117,69 @@ final class WindowCloser {
 
         guard missionControlDetection.isLikelyActive else {
             Logger.info("Mission Control not active; ignoring \(action.verb) request. Detection: \(missionControlDetection.debugSummary)")
-            return
+            return .missionControlInactive
         }
 
-        performInMissionControlMode(action, mousePoint: mousePoint, detection: missionControlDetection)
+        return performInMissionControlMode(action, mousePoint: mousePoint, detection: missionControlDetection)
     }
 
     func prepareMissionControlSwipeClose() -> Bool {
         prepareMissionControlSwipeAction()
+    }
+
+    func clearPreparedSwipeAction() {
+        preparedSwipeAction = nil
+    }
+
+    func classifyMissionControlSwipeLocation(usePreparedSwipeDetection: Bool = true) -> MissionControlSwipeLocation {
+        guard permissionManager.isAccessibilityTrusted else {
+            Logger.error("Cannot classify Mission Control swipe location because Accessibility permission is missing")
+            return .permissionMissing
+        }
+
+        let mousePoint: CGPoint
+        let detection: MissionControlDetection
+
+        if usePreparedSwipeDetection,
+           let prepared = preparedSwipeAction,
+           Date().timeIntervalSince(prepared.createdAt) <= 1.0 {
+            mousePoint = prepared.mousePoint
+            detection = prepared.detection
+            Logger.debug("Classifying swipe location with prepared Mission Control detection: \(detection.debugSummary)")
+        } else {
+            mousePoint = windowEnumerator.currentMouseLocationInCGWindowCoordinates()
+            detection = missionControlDetector.detect(mousePoint: mousePoint)
+            if detection.isLikelyActive {
+                preparedSwipeAction = (mousePoint: mousePoint, detection: detection, createdAt: Date())
+            }
+        }
+
+        guard detection.isLikelyActive else {
+            Logger.info("Swipe location classification rejected because Mission Control is inactive. Detection: \(detection.debugSummary)")
+            return .missionControlInactive
+        }
+
+        let candidates = windowEnumerator.visibleWindowCandidates(from: detection.entries)
+        guard !candidates.isEmpty else {
+            Logger.info("Swipe location classified as blank area: no app candidates in Mission Control")
+            return .blankArea
+        }
+
+        let geometryMatches = missionControlGeometryMatches(candidates: candidates, mousePoint: mousePoint)
+        let usableGeometryMatches = geometryMatches.filter { $0.confidence != .none }
+
+        guard let bestGeometryMatch = usableGeometryMatches.max(by: { $0.score < $1.score }) else {
+            Logger.info("Swipe location classified as blank area: no usable geometry match")
+            return .blankArea
+        }
+
+        Logger.info("Mission Control swipe location probe: best=\(bestGeometryMatch.debugSummary), usableGeometryMatches=\(usableGeometryMatches.count)")
+        if bestGeometryMatch.confidence == .high {
+            return .windowTarget
+        }
+
+        Logger.info("Swipe location classified as blank area: best target confidence is \(bestGeometryMatch.confidence)")
+        return .blankArea
     }
 
     func prepareMissionControlSwipeAction() -> Bool {
@@ -145,7 +218,7 @@ final class WindowCloser {
         return true
     }
 
-    private func performInMissionControlMode(_ action: MissionControlWindowAction, mousePoint: CGPoint, detection: MissionControlDetection) {
+    private func performInMissionControlMode(_ action: MissionControlWindowAction, mousePoint: CGPoint, detection: MissionControlDetection) -> MissionControlWindowActionResult {
         Logger.info("Mission Control mode active")
         Logger.info("Mission Control detection summary: \(detection.debugSummary)")
 
@@ -154,8 +227,7 @@ final class WindowCloser {
 
         guard !candidates.isEmpty else {
             Logger.warning("No real app CG candidates are available in Mission Control mode")
-            debugDumper.dumpWindowList(entries: detection.entries, header: "Mission Control no-candidate diagnostics")
-            return
+            return .noTargetInMissionControl
         }
 
         let geometryMatches = missionControlGeometryMatches(candidates: candidates, mousePoint: mousePoint)
@@ -164,8 +236,7 @@ final class WindowCloser {
         guard let geometryMatch = usableGeometryMatches.max(by: { $0.score < $1.score }) else {
             Logger.warning("No Mission Control geometry match had usable confidence")
             logTopGeometryMatches(geometryMatches)
-            debugDumper.dumpWindowList(entries: detection.entries, header: "Mission Control geometry failure diagnostics")
-            return
+            return .noTargetInMissionControl
         }
 
         Logger.info("Best Mission Control geometry match: \(geometryMatch.debugSummary), usableGeometryMatches=\(usableGeometryMatches.count)")
@@ -184,7 +255,7 @@ final class WindowCloser {
         guard let selectedAXMatch else {
             Logger.error("Mission Control mode failed to match selected CG candidate to an AX window")
             debugDumper.dumpWindowList(entries: detection.entries, header: "Mission Control AX-match failure diagnostics")
-            return
+            return .rejectedInMissionControl
         }
 
         let axMatch = selectedAXMatch.match
@@ -195,14 +266,14 @@ final class WindowCloser {
            geometryMatch.score < 100 || usableGeometryMatches.count > 1 {
             Logger.warning("Mission Control ranked/thumbnail conflict is not safe enough to close automatically. geometryScore=\(geometryMatch.score), usableGeometryMatches=\(usableGeometryMatches.count)")
             Logger.warning("Rejected disputed target: CG={\(geometryMatch.debugSummary)}, AX={\(axMatch.debugSummary)}")
-            return
+            return .rejectedInMissionControl
         }
 
         guard finalConfidence >= missionControlCloseThreshold else {
             Logger.warning("Mission Control match confidence \(finalConfidence) is below safe threshold \(missionControlCloseThreshold). Not performing \(action.verb).")
             Logger.warning("Rejected Mission Control target: CG={\(geometryMatch.debugSummary)}, AX={\(axMatch.debugSummary)}")
             debugDumper.dumpWindowList(entries: detection.entries, header: "Mission Control low-confidence diagnostics")
-            return
+            return .rejectedInMissionControl
         }
 
         let didPerform: Bool
@@ -231,8 +302,10 @@ final class WindowCloser {
                 let staleThumbnailBounds = geometryMatch.predictedBounds ?? geometryMatch.candidate.bounds
                 missionControlClickGuard.protectAgainstStaleThumbnailClick(in: staleThumbnailBounds)
             }
+            return .performed
         } else {
             Logger.error("Mission Control \(action.verb) workflow failed without crashing or force quitting")
+            return .failed
         }
     }
 

@@ -5,6 +5,9 @@ final class StatusBarController: NSObject {
     var onToggleMissionControlMode: ((Bool) -> Void)?
     var onToggleSwipeUpToClose: ((Bool) -> Void)?
     var onToggleSwipeDownToMinimize: ((Bool) -> Void)?
+    var onToggleBlankAreaSwipeUpToArrange: ((Bool) -> Void)?
+    var onArrangeVisibleWindows: (() -> Void)?
+    var onUndoLastArrange: (() -> Void)?
     var onToggleDebugLogging: ((Bool) -> Void)?
     var onDumpWindowList: (() -> Void)?
     var onDumpAXWindows: (() -> Void)?
@@ -19,6 +22,7 @@ final class StatusBarController: NSObject {
     private let missionControlModeItem: NSMenuItem
     private let swipeUpToCloseItem: NSMenuItem
     private let swipeDownToMinimizeItem: NSMenuItem
+    private let blankAreaSwipeUpToArrangeItem: NSMenuItem
     private let debugLoggingItem: NSMenuItem
 
     override init() {
@@ -26,7 +30,8 @@ final class StatusBarController: NSObject {
         permissionStatusItem = NSMenuItem(title: "Accessibility: Checking...", action: nil, keyEquivalent: "")
         missionControlModeItem = NSMenuItem(title: "Enable Mission Control Close", action: #selector(toggleMissionControlMode), keyEquivalent: "")
         swipeUpToCloseItem = NSMenuItem(title: "Enable Swipe Up to Close", action: #selector(toggleSwipeUpToClose), keyEquivalent: "")
-        swipeDownToMinimizeItem = NSMenuItem(title: "Enable Swipe Down to Minimize (Experimental)", action: #selector(toggleSwipeDownToMinimize), keyEquivalent: "")
+        swipeDownToMinimizeItem = NSMenuItem(title: "Enable Swipe Down to Minimize", action: #selector(toggleSwipeDownToMinimize), keyEquivalent: "")
+        blankAreaSwipeUpToArrangeItem = NSMenuItem(title: "Enable Blank Area Swipe Up to Arrange (Experimental)", action: #selector(toggleBlankAreaSwipeUpToArrange), keyEquivalent: "")
         debugLoggingItem = NSMenuItem(title: "Debug Logging", action: #selector(toggleDebugLogging), keyEquivalent: "")
 
         super.init()
@@ -51,6 +56,10 @@ final class StatusBarController: NSObject {
 
     func updateSwipeDownToMinimize(isEnabled: Bool) {
         swipeDownToMinimizeItem.state = isEnabled ? .on : .off
+    }
+
+    func updateBlankAreaSwipeUpToArrange(isEnabled: Bool) {
+        blankAreaSwipeUpToArrangeItem.state = isEnabled ? .on : .off
     }
 
     func updateDebugLogging(isEnabled: Bool) {
@@ -94,6 +103,18 @@ final class StatusBarController: NSObject {
         swipeDownToMinimizeItem.target = self
         swipeDownToMinimizeItem.state = .off
         menu.addItem(swipeDownToMinimizeItem)
+
+        blankAreaSwipeUpToArrangeItem.target = self
+        blankAreaSwipeUpToArrangeItem.state = .on
+        menu.addItem(blankAreaSwipeUpToArrangeItem)
+
+        let arrangeVisibleWindowsItem = NSMenuItem(title: "Arrange Visible Windows", action: #selector(arrangeVisibleWindows), keyEquivalent: "")
+        arrangeVisibleWindowsItem.target = self
+        menu.addItem(arrangeVisibleWindowsItem)
+
+        let undoLastArrangeItem = NSMenuItem(title: "Undo Last Arrange", action: #selector(undoLastArrange), keyEquivalent: "")
+        undoLastArrangeItem.target = self
+        menu.addItem(undoLastArrangeItem)
 
         menu.addItem(.separator())
 
@@ -156,6 +177,20 @@ final class StatusBarController: NSObject {
         let newValue = swipeDownToMinimizeItem.state != .on
         updateSwipeDownToMinimize(isEnabled: newValue)
         onToggleSwipeDownToMinimize?(newValue)
+    }
+
+    @objc private func toggleBlankAreaSwipeUpToArrange() {
+        let newValue = blankAreaSwipeUpToArrangeItem.state != .on
+        updateBlankAreaSwipeUpToArrange(isEnabled: newValue)
+        onToggleBlankAreaSwipeUpToArrange?(newValue)
+    }
+
+    @objc private func arrangeVisibleWindows() {
+        onArrangeVisibleWindows?()
+    }
+
+    @objc private func undoLastArrange() {
+        onUndoLastArrange?()
     }
 
     @objc private func toggleDebugLogging() {

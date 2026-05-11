@@ -2,6 +2,14 @@
 
 ## Unreleased
 
+## 0.6.5
+
+- Added menu actions for `Arrange Visible Windows` and `Undo Last Arrange`.
+- Added an experimental blank-area swipe-up trigger: swipe up on a Mission Control thumbnail to close it, or swipe up on empty Mission Control space to exit and arrange visible windows.
+- Improved auto-arrange to collect AX windows first so same-app or same-title windows are less likely to be missed.
+- Auto-arrange now uses the system visible screen frame, so hidden Dock/menu bar space can be used when macOS exposes it.
+- Removed the double swipe-up trigger from the local experiment because public scroll events cannot reliably distinguish two-finger scrolls from four-finger Mission Control gestures.
+
 ## 0.6.4
 
 - Distinguish Stage Manager-like Dock overlays from Mission Control by requiring Mission Control layout evidence before arming close/minimize gestures.

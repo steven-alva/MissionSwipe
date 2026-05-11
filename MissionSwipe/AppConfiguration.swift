@@ -7,6 +7,7 @@ final class AppConfiguration {
     private let missionControlModeKey = "EnableMissionControlMode"
     private let swipeUpToCloseKey = "EnableSwipeUpToClose"
     private let swipeDownToMinimizeKey = "EnableSwipeDownToMinimize"
+    private let blankAreaSwipeUpToArrangeKey = "EnableBlankAreaSwipeUpToArrange"
     private let debugLoggingKey = "EnableDebugLogging"
     private let hideStatusBarIconKey = "HideStatusBarIcon"
 
@@ -50,6 +51,19 @@ final class AppConfiguration {
         set {
             defaults.set(newValue, forKey: swipeDownToMinimizeKey)
             Logger.info("EnableSwipeDownToMinimize set to \(newValue)")
+        }
+    }
+
+    var enableBlankAreaSwipeUpToArrange: Bool {
+        get {
+            if defaults.object(forKey: blankAreaSwipeUpToArrangeKey) == nil {
+                return true
+            }
+            return defaults.bool(forKey: blankAreaSwipeUpToArrangeKey)
+        }
+        set {
+            defaults.set(newValue, forKey: blankAreaSwipeUpToArrangeKey)
+            Logger.info("EnableBlankAreaSwipeUpToArrange set to \(newValue)")
         }
     }
 

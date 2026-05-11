@@ -4,6 +4,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private let permissionManager = AccessibilityPermissionManager()
     private let hotkeyManager = GlobalHotkeyManager()
     private let windowCloser = WindowCloser()
+    private let windowArranger = WindowArranger()
     private let debugWindowDumper = DebugWindowDumper()
     private let trackpadGestureDetector = TrackpadGestureDetector()
     private let configuration = AppConfiguration.shared
@@ -27,6 +28,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         statusBarController?.updateMissionControlMode(isEnabled: configuration.enableMissionControlMode)
         statusBarController?.updateSwipeUpToClose(isEnabled: configuration.enableSwipeUpToClose)
         statusBarController?.updateSwipeDownToMinimize(isEnabled: configuration.enableSwipeDownToMinimize)
+        statusBarController?.updateBlankAreaSwipeUpToArrange(isEnabled: configuration.enableBlankAreaSwipeUpToArrange)
         statusBarController?.updateDebugLogging(isEnabled: configuration.enableDebugLogging)
         registerHotkey()
         startTrackpadGestureDetector()
@@ -55,6 +57,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             self?.configuration.enableSwipeDownToMinimize = isEnabled
             self?.updateTrackpadGestureDetectorEnabledState()
             self?.statusBarController?.updateSwipeDownToMinimize(isEnabled: isEnabled)
+        }
+        statusBarController.onToggleBlankAreaSwipeUpToArrange = { [weak self] isEnabled in
+            self?.configuration.enableBlankAreaSwipeUpToArrange = isEnabled
+            self?.updateTrackpadGestureDetectorEnabledState()
+            self?.statusBarController?.updateBlankAreaSwipeUpToArrange(isEnabled: isEnabled)
+        }
+        statusBarController.onArrangeVisibleWindows = { [weak self] in
+            self?.arrangeVisibleWindows(trigger: "menu item")
+        }
+        statusBarController.onUndoLastArrange = { [weak self] in
+            self?.windowArranger.undoLastArrange()
         }
         statusBarController.onToggleDebugLogging = { [weak self] isEnabled in
             self?.configuration.enableDebugLogging = isEnabled
@@ -111,7 +124,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 return false
             }
 
-            guard self.configuration.enableSwipeUpToClose || self.configuration.enableSwipeDownToMinimize else {
+            guard self.configuration.enableSwipeUpToClose ||
+                    self.configuration.enableSwipeDownToMinimize ||
+                    self.configuration.enableBlankAreaSwipeUpToArrange else {
                 Logger.info("Swipe gestures are disabled; refusing to arm gesture")
                 return false
             }
@@ -137,14 +152,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     private func updateTrackpadGestureDetectorEnabledState() {
-        trackpadGestureDetector.detectsSwipeUp = configuration.enableSwipeUpToClose
+        trackpadGestureDetector.detectsSwipeUp = configuration.enableSwipeUpToClose || configuration.enableBlankAreaSwipeUpToArrange
         trackpadGestureDetector.detectsSwipeDown = configuration.enableSwipeDownToMinimize
-        trackpadGestureDetector.isEnabled = configuration.enableSwipeUpToClose || configuration.enableSwipeDownToMinimize
+        trackpadGestureDetector.isEnabled = configuration.enableSwipeUpToClose ||
+            configuration.enableSwipeDownToMinimize ||
+            configuration.enableBlankAreaSwipeUpToArrange
     }
 
     private func closeMissionControlWindowUnderMouseFromSwipe() {
-        guard configuration.enableSwipeUpToClose else {
-            Logger.info("Swipe-up close is disabled; ignoring detected gesture")
+        guard configuration.enableSwipeUpToClose || configuration.enableBlankAreaSwipeUpToArrange else {
+            Logger.info("Swipe-up actions are disabled; ignoring detected gesture")
             return
         }
 
@@ -154,7 +171,34 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
 
         Logger.info("Close requested by trackpad swipe-up")
-        windowCloser.closeMissionControlWindowUnderMouseIfActive(usePreparedSwipeDetection: true)
+        if configuration.enableBlankAreaSwipeUpToArrange {
+            switch windowCloser.classifyMissionControlSwipeLocation(usePreparedSwipeDetection: true) {
+            case .blankArea:
+                Logger.info("Swipe-up landed on Mission Control blank area; arranging visible windows")
+                windowCloser.clearPreparedSwipeAction()
+                windowArranger.arrangeAfterExitingMissionControl(trigger: "blank-area swipe-up")
+                refreshPermissionStatus(showPromptWhenMissing: false)
+                return
+            case .windowTarget:
+                break
+            case .missionControlInactive, .permissionMissing:
+                refreshPermissionStatus(showPromptWhenMissing: false)
+                return
+            }
+        }
+
+        guard configuration.enableSwipeUpToClose else {
+            Logger.info("Swipe-up close is disabled and blank-area arrange did not apply")
+            refreshPermissionStatus(showPromptWhenMissing: false)
+            return
+        }
+
+        let result = windowCloser.closeMissionControlWindowUnderMouseIfActive(usePreparedSwipeDetection: true)
+        if (result == .noTargetInMissionControl || result == .rejectedInMissionControl),
+           configuration.enableBlankAreaSwipeUpToArrange {
+            Logger.info("Swipe-up close found no safe target; treating it as Mission Control blank area")
+            windowArranger.arrangeAfterExitingMissionControl(trigger: "blank-area swipe-up")
+        }
         refreshPermissionStatus(showPromptWhenMissing: false)
     }
 
@@ -171,6 +215,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
         Logger.info("Minimize requested by trackpad swipe-down")
         windowCloser.minimizeMissionControlWindowUnderMouseIfActive(usePreparedSwipeDetection: true)
+        refreshPermissionStatus(showPromptWhenMissing: false)
+    }
+
+    private func arrangeVisibleWindows(trigger: String) {
+        windowArranger.arrangeVisibleWindows(trigger: trigger)
         refreshPermissionStatus(showPromptWhenMissing: false)
     }
 
