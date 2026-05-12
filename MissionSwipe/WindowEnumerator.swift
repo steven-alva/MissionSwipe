@@ -89,10 +89,12 @@ final class WindowEnumerator {
         "WindowServer"
     ]
 
-    func currentMouseLocationInCGWindowCoordinates() -> CGPoint {
+    func currentMouseLocationInCGWindowCoordinates(logResult: Bool = true) -> CGPoint {
         let appKitPoint = NSEvent.mouseLocation
         let cgPoint = CoordinateConverter.appKitPointToCGWindowPoint(appKitPoint)
-        Logger.info("Mouse location AppKit=\(appKitPoint), converted CGWindow=\(cgPoint)")
+        if logResult {
+            Logger.info("Mouse location AppKit=\(appKitPoint), converted CGWindow=\(cgPoint)")
+        }
         return cgPoint
     }
 

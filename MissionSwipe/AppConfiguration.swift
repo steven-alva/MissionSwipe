@@ -8,8 +8,12 @@ final class AppConfiguration {
     private let swipeUpToCloseKey = "EnableSwipeUpToClose"
     private let swipeDownToMinimizeKey = "EnableSwipeDownToMinimize"
     private let blankAreaSwipeUpToArrangeKey = "EnableBlankAreaSwipeUpToArrange"
+    private let secondMissionControlSwipeUpToArrangeKey = "EnableSecondMissionControlSwipeUpToArrange"
+    private let missionControlGestureProbeKey = "EnableMissionControlGestureProbe"
+    private let inputEventProbeKey = "EnableInputEventProbe"
     private let debugLoggingKey = "EnableDebugLogging"
     private let hideStatusBarIconKey = "HideStatusBarIcon"
+    private let secondMissionControlSwipeUpToArrangeFeatureEnabled = false
 
     init(defaults: UserDefaults = .standard) {
         self.defaults = defaults
@@ -64,6 +68,47 @@ final class AppConfiguration {
         set {
             defaults.set(newValue, forKey: blankAreaSwipeUpToArrangeKey)
             Logger.info("EnableBlankAreaSwipeUpToArrange set to \(newValue)")
+        }
+    }
+
+    var enableSecondMissionControlSwipeUpToArrange: Bool {
+        get {
+            guard secondMissionControlSwipeUpToArrangeFeatureEnabled else {
+                return false
+            }
+            if defaults.object(forKey: secondMissionControlSwipeUpToArrangeKey) == nil {
+                return false
+            }
+            return defaults.bool(forKey: secondMissionControlSwipeUpToArrangeKey)
+        }
+        set {
+            guard secondMissionControlSwipeUpToArrangeFeatureEnabled else {
+                defaults.set(false, forKey: secondMissionControlSwipeUpToArrangeKey)
+                Logger.info("EnableSecondMissionControlSwipeUpToArrange ignored because the feature is hidden")
+                return
+            }
+            defaults.set(newValue, forKey: secondMissionControlSwipeUpToArrangeKey)
+            Logger.info("EnableSecondMissionControlSwipeUpToArrange set to \(newValue)")
+        }
+    }
+
+    var enableMissionControlGestureProbe: Bool {
+        get {
+            defaults.bool(forKey: missionControlGestureProbeKey)
+        }
+        set {
+            defaults.set(newValue, forKey: missionControlGestureProbeKey)
+            Logger.info("EnableMissionControlGestureProbe set to \(newValue)")
+        }
+    }
+
+    var enableInputEventProbe: Bool {
+        get {
+            defaults.bool(forKey: inputEventProbeKey)
+        }
+        set {
+            defaults.set(newValue, forKey: inputEventProbeKey)
+            Logger.info("EnableInputEventProbe set to \(newValue)")
         }
     }
 

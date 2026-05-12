@@ -6,6 +6,9 @@ final class StatusBarController: NSObject {
     var onToggleSwipeUpToClose: ((Bool) -> Void)?
     var onToggleSwipeDownToMinimize: ((Bool) -> Void)?
     var onToggleBlankAreaSwipeUpToArrange: ((Bool) -> Void)?
+    var onToggleSecondMissionControlSwipeUpToArrange: ((Bool) -> Void)?
+    var onToggleMissionControlGestureProbe: ((Bool) -> Void)?
+    var onToggleInputEventProbe: ((Bool) -> Void)?
     var onArrangeVisibleWindows: (() -> Void)?
     var onUndoLastArrange: (() -> Void)?
     var onToggleDebugLogging: ((Bool) -> Void)?
@@ -23,6 +26,9 @@ final class StatusBarController: NSObject {
     private let swipeUpToCloseItem: NSMenuItem
     private let swipeDownToMinimizeItem: NSMenuItem
     private let blankAreaSwipeUpToArrangeItem: NSMenuItem
+    private let secondMissionControlSwipeUpToArrangeItem: NSMenuItem
+    private let missionControlGestureProbeItem: NSMenuItem
+    private let inputEventProbeItem: NSMenuItem
     private let debugLoggingItem: NSMenuItem
 
     override init() {
@@ -32,6 +38,9 @@ final class StatusBarController: NSObject {
         swipeUpToCloseItem = NSMenuItem(title: "Enable Swipe Up to Close", action: #selector(toggleSwipeUpToClose), keyEquivalent: "")
         swipeDownToMinimizeItem = NSMenuItem(title: "Enable Swipe Down to Minimize", action: #selector(toggleSwipeDownToMinimize), keyEquivalent: "")
         blankAreaSwipeUpToArrangeItem = NSMenuItem(title: "Enable Blank Area Swipe Up to Arrange (Experimental)", action: #selector(toggleBlankAreaSwipeUpToArrange), keyEquivalent: "")
+        secondMissionControlSwipeUpToArrangeItem = NSMenuItem(title: "Enable Second Mission Control Swipe Up to Arrange (Experimental)", action: #selector(toggleSecondMissionControlSwipeUpToArrange), keyEquivalent: "")
+        missionControlGestureProbeItem = NSMenuItem(title: "Enable Mission Control Gesture Probe (Experimental)", action: #selector(toggleMissionControlGestureProbe), keyEquivalent: "")
+        inputEventProbeItem = NSMenuItem(title: "Enable Input Event Probe (Experimental)", action: #selector(toggleInputEventProbe), keyEquivalent: "")
         debugLoggingItem = NSMenuItem(title: "Debug Logging", action: #selector(toggleDebugLogging), keyEquivalent: "")
 
         super.init()
@@ -60,6 +69,18 @@ final class StatusBarController: NSObject {
 
     func updateBlankAreaSwipeUpToArrange(isEnabled: Bool) {
         blankAreaSwipeUpToArrangeItem.state = isEnabled ? .on : .off
+    }
+
+    func updateSecondMissionControlSwipeUpToArrange(isEnabled: Bool) {
+        secondMissionControlSwipeUpToArrangeItem.state = isEnabled ? .on : .off
+    }
+
+    func updateMissionControlGestureProbe(isEnabled: Bool) {
+        missionControlGestureProbeItem.state = isEnabled ? .on : .off
+    }
+
+    func updateInputEventProbe(isEnabled: Bool) {
+        inputEventProbeItem.state = isEnabled ? .on : .off
     }
 
     func updateDebugLogging(isEnabled: Bool) {
@@ -183,6 +204,24 @@ final class StatusBarController: NSObject {
         let newValue = blankAreaSwipeUpToArrangeItem.state != .on
         updateBlankAreaSwipeUpToArrange(isEnabled: newValue)
         onToggleBlankAreaSwipeUpToArrange?(newValue)
+    }
+
+    @objc private func toggleSecondMissionControlSwipeUpToArrange() {
+        let newValue = secondMissionControlSwipeUpToArrangeItem.state != .on
+        updateSecondMissionControlSwipeUpToArrange(isEnabled: newValue)
+        onToggleSecondMissionControlSwipeUpToArrange?(newValue)
+    }
+
+    @objc private func toggleMissionControlGestureProbe() {
+        let newValue = missionControlGestureProbeItem.state != .on
+        updateMissionControlGestureProbe(isEnabled: newValue)
+        onToggleMissionControlGestureProbe?(newValue)
+    }
+
+    @objc private func toggleInputEventProbe() {
+        let newValue = inputEventProbeItem.state != .on
+        updateInputEventProbe(isEnabled: newValue)
+        onToggleInputEventProbe?(newValue)
     }
 
     @objc private func arrangeVisibleWindows() {

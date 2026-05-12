@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+## 0.6.6
+
+- Improved visible-window auto arrange with more stable balanced layouts for four or more windows.
+- Fixed multi-display and hidden-Dock usable-area calculations so arranged windows target the correct screen bounds.
+- Added arrange frame verification and retry logging when macOS or an app adjusts the requested size.
+- Kept second Mission Control swipe-up arrange hidden because the gesture inference remains unstable.
+
 ## 0.6.5
 
 - Added menu actions for `Arrange Visible Windows` and `Undo Last Arrange`.

@@ -2,7 +2,7 @@
 
 MissionSwipe is a macOS AppKit prototype menu bar app. Its main path is Mission Control only: hover a Mission Control window thumbnail, then close it with `Control + Option + W` or a trackpad swipe-up gesture. MVP 0.6 also includes an experimental swipe-down minimize gesture.
 
-## Current version: MVP 0.6.5
+## Current version: MVP 0.6.6
 
 MVP 0.6 keeps the product boundary narrow: acting on hovered Mission Control thumbnails while normal desktop windows stay untouched. Swipe-down minimize is experimental and on by default for new installs.
 
@@ -57,7 +57,7 @@ scripts/build_app.sh
 This creates:
 
 - `dist/MissionSwipe.app`
-- `dist/MissionSwipe-0.6.5-macos.zip`
+- `dist/MissionSwipe-0.6.6-macos.zip`
 
 The script builds a universal app for Apple Silicon and Intel Macs by default. For a faster local-only build, run:
 

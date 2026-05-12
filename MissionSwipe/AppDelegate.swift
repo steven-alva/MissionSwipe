@@ -7,8 +7,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private let windowArranger = WindowArranger()
     private let debugWindowDumper = DebugWindowDumper()
     private let trackpadGestureDetector = TrackpadGestureDetector()
+    private let missionControlGestureProbe = MissionControlGestureProbe()
+    private let secondMissionControlSwipeMonitor = MissionControlJitterProbe()
+    private let inputEventProbe = InputEventProbe()
     private let configuration = AppConfiguration.shared
     private var statusBarController: StatusBarController?
+    private var isArrangingFromSecondMissionControlSwipe = false
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         Logger.info("MissionSwipe launching")
@@ -29,15 +33,25 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         statusBarController?.updateSwipeUpToClose(isEnabled: configuration.enableSwipeUpToClose)
         statusBarController?.updateSwipeDownToMinimize(isEnabled: configuration.enableSwipeDownToMinimize)
         statusBarController?.updateBlankAreaSwipeUpToArrange(isEnabled: configuration.enableBlankAreaSwipeUpToArrange)
+        statusBarController?.updateSecondMissionControlSwipeUpToArrange(isEnabled: configuration.enableSecondMissionControlSwipeUpToArrange)
+        statusBarController?.updateMissionControlGestureProbe(isEnabled: configuration.enableMissionControlGestureProbe)
+        statusBarController?.updateInputEventProbe(isEnabled: configuration.enableInputEventProbe)
         statusBarController?.updateDebugLogging(isEnabled: configuration.enableDebugLogging)
         registerHotkey()
         startTrackpadGestureDetector()
+        configureSecondMissionControlSwipeMonitor()
+        updateMissionControlGestureProbeEnabledState()
+        updateSecondMissionControlSwipeMonitorEnabledState()
+        updateInputEventProbeEnabledState()
     }
 
     func applicationWillTerminate(_ notification: Notification) {
         Logger.info("MissionSwipe terminating")
         hotkeyManager.unregister()
         trackpadGestureDetector.stop()
+        missionControlGestureProbe.stop()
+        secondMissionControlSwipeMonitor.stop()
+        inputEventProbe.stop()
     }
 
     private func configureStatusBarController(_ statusBarController: StatusBarController) {
@@ -62,6 +76,21 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             self?.configuration.enableBlankAreaSwipeUpToArrange = isEnabled
             self?.updateTrackpadGestureDetectorEnabledState()
             self?.statusBarController?.updateBlankAreaSwipeUpToArrange(isEnabled: isEnabled)
+        }
+        statusBarController.onToggleSecondMissionControlSwipeUpToArrange = { [weak self] isEnabled in
+            self?.configuration.enableSecondMissionControlSwipeUpToArrange = isEnabled
+            self?.statusBarController?.updateSecondMissionControlSwipeUpToArrange(isEnabled: isEnabled)
+            self?.updateSecondMissionControlSwipeMonitorEnabledState()
+        }
+        statusBarController.onToggleMissionControlGestureProbe = { [weak self] isEnabled in
+            self?.configuration.enableMissionControlGestureProbe = isEnabled
+            self?.statusBarController?.updateMissionControlGestureProbe(isEnabled: isEnabled)
+            self?.updateMissionControlGestureProbeEnabledState()
+        }
+        statusBarController.onToggleInputEventProbe = { [weak self] isEnabled in
+            self?.configuration.enableInputEventProbe = isEnabled
+            self?.statusBarController?.updateInputEventProbe(isEnabled: isEnabled)
+            self?.updateInputEventProbeEnabledState()
         }
         statusBarController.onArrangeVisibleWindows = { [weak self] in
             self?.arrangeVisibleWindows(trigger: "menu item")
@@ -151,12 +180,44 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         trackpadGestureDetector.start()
     }
 
+    private func configureSecondMissionControlSwipeMonitor() {
+        secondMissionControlSwipeMonitor.onSecondMissionControlSwipeInferred = { [weak self] in
+            DispatchQueue.main.async {
+                self?.arrangeFromSecondMissionControlSwipe()
+            }
+        }
+    }
+
     private func updateTrackpadGestureDetectorEnabledState() {
         trackpadGestureDetector.detectsSwipeUp = configuration.enableSwipeUpToClose || configuration.enableBlankAreaSwipeUpToArrange
         trackpadGestureDetector.detectsSwipeDown = configuration.enableSwipeDownToMinimize
         trackpadGestureDetector.isEnabled = configuration.enableSwipeUpToClose ||
             configuration.enableSwipeDownToMinimize ||
             configuration.enableBlankAreaSwipeUpToArrange
+    }
+
+    private func updateMissionControlGestureProbeEnabledState() {
+        if configuration.enableMissionControlGestureProbe {
+            missionControlGestureProbe.start()
+        } else {
+            missionControlGestureProbe.stop()
+        }
+    }
+
+    private func updateSecondMissionControlSwipeMonitorEnabledState() {
+        if configuration.enableSecondMissionControlSwipeUpToArrange {
+            secondMissionControlSwipeMonitor.start()
+        } else {
+            secondMissionControlSwipeMonitor.stop()
+        }
+    }
+
+    private func updateInputEventProbeEnabledState() {
+        if configuration.enableInputEventProbe {
+            inputEventProbe.start()
+        } else {
+            inputEventProbe.stop()
+        }
     }
 
     private func closeMissionControlWindowUnderMouseFromSwipe() {
@@ -176,7 +237,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             case .blankArea:
                 Logger.info("Swipe-up landed on Mission Control blank area; arranging visible windows")
                 windowCloser.clearPreparedSwipeAction()
-                windowArranger.arrangeAfterExitingMissionControl(trigger: "blank-area swipe-up")
+                secondMissionControlSwipeMonitor.suppressCurrentMissionControlSession(reason: "blank-area swipe-up arrange")
+                windowArranger.arrangeAfterExitingMissionControl(
+                    trigger: "blank-area swipe-up",
+                    preferCurrentMouseExitPoint: true
+                )
                 refreshPermissionStatus(showPromptWhenMissing: false)
                 return
             case .windowTarget:
@@ -194,10 +259,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
 
         let result = windowCloser.closeMissionControlWindowUnderMouseIfActive(usePreparedSwipeDetection: true)
+        if result == .performed {
+            secondMissionControlSwipeMonitor.suppressCurrentMissionControlSession(reason: "Mission Control window close")
+        }
         if (result == .noTargetInMissionControl || result == .rejectedInMissionControl),
            configuration.enableBlankAreaSwipeUpToArrange {
             Logger.info("Swipe-up close found no safe target; treating it as Mission Control blank area")
-            windowArranger.arrangeAfterExitingMissionControl(trigger: "blank-area swipe-up")
+            secondMissionControlSwipeMonitor.suppressCurrentMissionControlSession(reason: "blank-area fallback arrange")
+            windowArranger.arrangeAfterExitingMissionControl(
+                trigger: "blank-area swipe-up",
+                preferCurrentMouseExitPoint: true
+            )
         }
         refreshPermissionStatus(showPromptWhenMissing: false)
     }
@@ -214,7 +286,35 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
 
         Logger.info("Minimize requested by trackpad swipe-down")
-        windowCloser.minimizeMissionControlWindowUnderMouseIfActive(usePreparedSwipeDetection: true)
+        let result = windowCloser.minimizeMissionControlWindowUnderMouseIfActive(usePreparedSwipeDetection: true)
+        if result == .performed {
+            secondMissionControlSwipeMonitor.suppressCurrentMissionControlSession(reason: "Mission Control window minimize")
+        }
+        refreshPermissionStatus(showPromptWhenMissing: false)
+    }
+
+    private func arrangeFromSecondMissionControlSwipe() {
+        guard configuration.enableSecondMissionControlSwipeUpToArrange else {
+            Logger.info("Second Mission Control swipe arrange is disabled; ignoring inferred gesture")
+            return
+        }
+
+        guard configuration.enableMissionControlMode else {
+            Logger.info("Mission Control mode is disabled; ignoring second Mission Control swipe arrange")
+            return
+        }
+
+        guard !isArrangingFromSecondMissionControlSwipe else {
+            Logger.info("Second Mission Control swipe arrange is already in progress; ignoring duplicate")
+            return
+        }
+
+        isArrangingFromSecondMissionControlSwipe = true
+        Logger.info("Auto arrange requested from second Mission Control swipe; exiting Mission Control before arranging")
+        windowArranger.arrangeAfterExitingMissionControl(trigger: "second Mission Control swipe-up")
+        DispatchQueue.main.asyncAfter(deadline: .now() + 1.2) { [weak self] in
+            self?.isArrangingFromSecondMissionControlSwipe = false
+        }
         refreshPermissionStatus(showPromptWhenMissing: false)
     }
 
