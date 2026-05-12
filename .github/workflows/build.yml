@@ -1,0 +1,33 @@
+name: Build MissionSwipe
+
+on:
+  push:
+    branches: [fix/small-screen-balanced-layout]
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: macos-14
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build
+        run: |
+          xcodebuild -project MissionSwipe.xcodeproj \
+            -scheme MissionSwipe \
+            -configuration Release \
+            -derivedDataPath build \
+            CODE_SIGN_IDENTITY="-" \
+            CODE_SIGNING_REQUIRED=NO \
+            CODE_SIGNING_ALLOWED=NO
+
+      - name: Package app
+        run: |
+          APP_PATH=$(find build -name "MissionSwipe.app" -type d | head -1)
+          ditto "$APP_PATH" MissionSwipe.app
+          zip -r MissionSwipe-patched.zip MissionSwipe.app
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: MissionSwipe-patched
+          path: MissionSwipe-patched.zip
