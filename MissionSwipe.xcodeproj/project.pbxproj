@@ -23,6 +23,13 @@
 		10000000000000000000010E /* MissionControlOverlayRefresher.swift in Sources */ = {isa = PBXBuildFile; fileRef = 100000000000000000000010 /* MissionControlOverlayRefresher.swift */; };
 		10000000000000000000010F /* TrackpadGestureDetector.swift in Sources */ = {isa = PBXBuildFile; fileRef = 100000000000000000000011 /* TrackpadGestureDetector.swift */; };
 		100000000000000000000110 /* MissionControlClickGuard.swift in Sources */ = {isa = PBXBuildFile; fileRef = 100000000000000000000012 /* MissionControlClickGuard.swift */; };
+		100000000000000000000111 /* WindowArranger.swift in Sources */ = {isa = PBXBuildFile; fileRef = 100000000000000000000013 /* WindowArranger.swift */; };
+		100000000000000000000112 /* GestureHUDController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 100000000000000000000014 /* GestureHUDController.swift */; };
+		100000000000000000000113 /* LayoutPreviewHUDController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 100000000000000000000015 /* LayoutPreviewHUDController.swift */; };
+		100000000000000000000114 /* SettingsWindowController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 100000000000000000000016 /* SettingsWindowController.swift */; };
+		100000000000000000000115 /* MissionControlGestureProbe.swift in Sources */ = {isa = PBXBuildFile; fileRef = 100000000000000000000017 /* MissionControlGestureProbe.swift */; };
+		100000000000000000000116 /* MissionControlJitterProbe.swift in Sources */ = {isa = PBXBuildFile; fileRef = 100000000000000000000018 /* MissionControlJitterProbe.swift */; };
+		100000000000000000000117 /* InputEventProbe.swift in Sources */ = {isa = PBXBuildFile; fileRef = 100000000000000000000019 /* InputEventProbe.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -44,6 +51,13 @@
 		100000000000000000000010 /* MissionControlOverlayRefresher.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MissionControlOverlayRefresher.swift; sourceTree = "<group>"; };
 		100000000000000000000011 /* TrackpadGestureDetector.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TrackpadGestureDetector.swift; sourceTree = "<group>"; };
 		100000000000000000000012 /* MissionControlClickGuard.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MissionControlClickGuard.swift; sourceTree = "<group>"; };
+		100000000000000000000013 /* WindowArranger.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WindowArranger.swift; sourceTree = "<group>"; };
+		100000000000000000000014 /* GestureHUDController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GestureHUDController.swift; sourceTree = "<group>"; };
+		100000000000000000000015 /* LayoutPreviewHUDController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LayoutPreviewHUDController.swift; sourceTree = "<group>"; };
+		100000000000000000000016 /* SettingsWindowController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsWindowController.swift; sourceTree = "<group>"; };
+		100000000000000000000017 /* MissionControlGestureProbe.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MissionControlGestureProbe.swift; sourceTree = "<group>"; };
+		100000000000000000000018 /* MissionControlJitterProbe.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MissionControlJitterProbe.swift; sourceTree = "<group>"; };
+		100000000000000000000019 /* InputEventProbe.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = InputEventProbe.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -85,6 +99,13 @@
 				10000000000000000000000F /* AppConfiguration.swift */,
 				100000000000000000000009 /* Logger.swift */,
 				10000000000000000000000A /* Info.plist */,
+				100000000000000000000013 /* WindowArranger.swift */,
+				100000000000000000000014 /* GestureHUDController.swift */,
+				100000000000000000000015 /* LayoutPreviewHUDController.swift */,
+				100000000000000000000016 /* SettingsWindowController.swift */,
+				100000000000000000000017 /* MissionControlGestureProbe.swift */,
+				100000000000000000000018 /* MissionControlJitterProbe.swift */,
+				100000000000000000000019 /* InputEventProbe.swift */,
 			);
 			path = MissionSwipe;
 			sourceTree = "<group>";
@@ -170,6 +191,13 @@
 				100000000000000000000110 /* MissionControlClickGuard.swift in Sources */,
 				10000000000000000000010F /* TrackpadGestureDetector.swift in Sources */,
 				100000000000000000000109 /* Logger.swift in Sources */,
+				100000000000000000000111 /* WindowArranger.swift in Sources */,
+				100000000000000000000112 /* GestureHUDController.swift in Sources */,
+				100000000000000000000113 /* LayoutPreviewHUDController.swift in Sources */,
+				100000000000000000000114 /* SettingsWindowController.swift in Sources */,
+				100000000000000000000115 /* MissionControlGestureProbe.swift in Sources */,
+				100000000000000000000116 /* MissionControlJitterProbe.swift in Sources */,
+				100000000000000000000117 /* InputEventProbe.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
