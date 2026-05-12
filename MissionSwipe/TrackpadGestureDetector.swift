@@ -2,6 +2,13 @@ import AppKit
 import CoreGraphics
 import Foundation
 
+enum TrackpadLayoutSwipeDirection {
+    case upLeft
+    case upRight
+    case downLeft
+    case downRight
+}
+
 final class TrackpadGestureDetector {
     enum State: String {
         case idle
@@ -12,9 +19,19 @@ final class TrackpadGestureDetector {
 
     var onSwipeUpDetected: (() -> Void)?
     var onSwipeDownDetected: (() -> Void)?
+    var onSwipeLeftDetected: (() -> Void)?
+    var onSwipeRightDetected: (() -> Void)?
+    var onLayoutSwipeDetected: ((TrackpadLayoutSwipeDirection) -> Void)?
     var shouldBeginTracking: (() -> Bool)?
+    var shouldTriggerSwipeUp: ((CGFloat) -> Bool)?
+    var shouldTriggerSwipeDown: ((CGFloat) -> Bool)?
+    var shouldTriggerSwipeLeft: ((CGFloat) -> Bool)?
+    var shouldTriggerSwipeRight: ((CGFloat) -> Bool)?
+    var shouldTriggerLayoutSwipe: ((TrackpadLayoutSwipeDirection, CGFloat) -> Bool)?
     var detectsSwipeUp: Bool = true
     var detectsSwipeDown: Bool = false
+    var detectsSwipeLeftRight: Bool = false
+    var detectsLayoutSwipe: Bool = false
 
     var isEnabled: Bool = true {
         didSet {
@@ -28,8 +45,15 @@ final class TrackpadGestureDetector {
     private enum Constants {
         static let invertSwipeDirection = true
         static let triggerThresholdY: CGFloat = 70
-        static let maxHorizontalRatio: CGFloat = 0.55
-        static let maxHorizontalAbsolute: CGFloat = 90
+        static let triggerThresholdX: CGFloat = 120
+        static let diagonalThresholdY: CGFloat = 58
+        static let diagonalThresholdX: CGFloat = 58
+        static let maxHorizontalRatio: CGFloat = 0.30
+        static let maxHorizontalAbsolute: CGFloat = 48
+        static let maxVerticalRatioForHorizontal: CGFloat = 0.34
+        static let maxVerticalAbsoluteForHorizontal: CGFloat = 58
+        static let directionalDominanceRatio: CGFloat = 2.20
+        static let ambiguousDiagonalMinimum: CGFloat = 28
         static let trackingTimeout: TimeInterval = 0.28
         static let cooldown: TimeInterval = 0.70
         static let rejectedPreflightCooldown: TimeInterval = 0.50
@@ -171,6 +195,7 @@ final class TrackpadGestureDetector {
         }
 
         let interpretedDeltaY = Constants.invertSwipeDirection ? -rawDeltaY : rawDeltaY
+        let interpretedDeltaX = Constants.invertSwipeDirection ? -rawDeltaX : rawDeltaX
         let phaseText = phaseDescription(rawValue: phaseRaw)
         let momentumPhaseText = phaseDescription(rawValue: momentumPhaseRaw)
         let hasMomentum = momentumPhaseRaw != 0
@@ -204,11 +229,15 @@ final class TrackpadGestureDetector {
             Logger.debug("Trackpad swipe state transition: idle -> tracking\(hasMomentum ? " from momentum event" : "")")
         }
 
-        accumulatedX += rawDeltaX
+        accumulatedX += interpretedDeltaX
         accumulatedY += interpretedDeltaY
 
         let interpretedDirection: String
-        if accumulatedY > 0 {
+        if abs(accumulatedX) > abs(accumulatedY), accumulatedX < 0 {
+            interpretedDirection = "swipe left"
+        } else if abs(accumulatedX) > abs(accumulatedY), accumulatedX > 0 {
+            interpretedDirection = "swipe right"
+        } else if accumulatedY > 0 {
             interpretedDirection = "swipe up"
         } else if accumulatedY < 0 {
             interpretedDirection = "swipe down"
@@ -218,17 +247,57 @@ final class TrackpadGestureDetector {
 
         let horizontalLimit = min(Constants.maxHorizontalAbsolute, abs(accumulatedY) * Constants.maxHorizontalRatio)
         let horizontalIsSmall = abs(accumulatedX) <= max(20, horizontalLimit)
+        let verticalLimit = min(Constants.maxVerticalAbsoluteForHorizontal, abs(accumulatedX) * Constants.maxVerticalRatioForHorizontal)
+        let verticalIsSmallForHorizontal = abs(accumulatedY) <= max(20, verticalLimit)
         let didReachUpThreshold = accumulatedY >= Constants.triggerThresholdY
         let didReachDownThreshold = accumulatedY <= -Constants.triggerThresholdY
-        let looksLikeSwipeUp = didReachUpThreshold && horizontalIsSmall && detectsSwipeUp
-        let looksLikeSwipeDown = didReachDownThreshold && horizontalIsSmall && detectsSwipeDown
-        let didTrigger = looksLikeSwipeUp || looksLikeSwipeDown
+        let didReachLeftThreshold = accumulatedX <= -Constants.triggerThresholdX
+        let didReachRightThreshold = accumulatedX >= Constants.triggerThresholdX
+        let layoutDirection = layoutSwipeDirection(accumulatedX: accumulatedX, accumulatedY: accumulatedY)
+        let horizontalMagnitude = abs(accumulatedX)
+        let verticalMagnitude = abs(accumulatedY)
+        let verticalDominates = verticalMagnitude >= horizontalMagnitude * Constants.directionalDominanceRatio
+        let horizontalDominates = horizontalMagnitude >= verticalMagnitude * Constants.directionalDominanceRatio
+        let hasDiagonalIntent = layoutDirection != nil && !verticalDominates && !horizontalDominates
+        let hasAmbiguousDiagonalMotion = detectsLayoutSwipe &&
+            horizontalMagnitude >= Constants.ambiguousDiagonalMinimum &&
+            verticalMagnitude >= Constants.ambiguousDiagonalMinimum
+        let layoutModeBlocksVertical = hasAmbiguousDiagonalMotion && !verticalDominates
+        let layoutModeBlocksHorizontal = hasAmbiguousDiagonalMotion && !horizontalDominates
+        let canConsiderLayoutSwipe = hasDiagonalIntent && detectsLayoutSwipe
+        let canConsiderSwipeUp = didReachUpThreshold && horizontalIsSmall && detectsSwipeUp && !layoutModeBlocksVertical
+        let canConsiderSwipeDown = didReachDownThreshold && horizontalIsSmall && detectsSwipeDown && !layoutModeBlocksVertical
+        let canConsiderSwipeLeft = didReachLeftThreshold && verticalIsSmallForHorizontal && detectsSwipeLeftRight && !layoutModeBlocksHorizontal
+        let canConsiderSwipeRight = didReachRightThreshold && verticalIsSmallForHorizontal && detectsSwipeLeftRight && !layoutModeBlocksHorizontal
 
-        let accumulationMessage = "Trackpad swipe accumulation: accumulatedY=\(format(accumulatedY)), accumulatedX=\(format(accumulatedX)), interpreted=\(interpretedDirection), upThreshold=\(didReachUpThreshold), downThreshold=\(didReachDownThreshold), horizontalSmall=\(horizontalIsSmall), source=\(source), momentum=\(hasMomentum), trigger=\(didTrigger)"
+        let layoutSwipeTriggerAllowed = canConsiderLayoutSwipe
+            ? (layoutDirection.map { direction in shouldTriggerLayoutSwipe?(direction, hypot(accumulatedX, accumulatedY)) ?? true } ?? true)
+            : false
+        let swipeUpTriggerAllowed = canConsiderSwipeUp ? (shouldTriggerSwipeUp?(accumulatedY) ?? true) : false
+        let swipeDownTriggerAllowed = canConsiderSwipeDown ? (shouldTriggerSwipeDown?(accumulatedY) ?? true) : false
+        let swipeLeftTriggerAllowed = canConsiderSwipeLeft ? (shouldTriggerSwipeLeft?(abs(accumulatedX)) ?? true) : false
+        let swipeRightTriggerAllowed = canConsiderSwipeRight ? (shouldTriggerSwipeRight?(accumulatedX) ?? true) : false
+        let looksLikeLayoutSwipe = canConsiderLayoutSwipe && layoutSwipeTriggerAllowed
+        let looksLikeSwipeUp = canConsiderSwipeUp && swipeUpTriggerAllowed
+        let looksLikeSwipeDown = canConsiderSwipeDown && swipeDownTriggerAllowed
+        let looksLikeSwipeLeft = canConsiderSwipeLeft && swipeLeftTriggerAllowed
+        let looksLikeSwipeRight = canConsiderSwipeRight && swipeRightTriggerAllowed
+        let didTrigger = looksLikeSwipeUp || looksLikeSwipeDown || looksLikeSwipeLeft || looksLikeSwipeRight || looksLikeLayoutSwipe
+
+        let accumulationMessage = "Trackpad swipe accumulation: accumulatedY=\(format(accumulatedY)), accumulatedX=\(format(accumulatedX)), interpreted=\(interpretedDirection), upThreshold=\(didReachUpThreshold), upAllowed=\(swipeUpTriggerAllowed), downThreshold=\(didReachDownThreshold), downAllowed=\(swipeDownTriggerAllowed), leftThreshold=\(didReachLeftThreshold), leftAllowed=\(swipeLeftTriggerAllowed), rightThreshold=\(didReachRightThreshold), rightAllowed=\(swipeRightTriggerAllowed), layoutDirection=\(layoutDirection.map(String.init(describing:)) ?? "none"), layoutAllowed=\(layoutSwipeTriggerAllowed), diagonalIntent=\(hasDiagonalIntent), verticalDominates=\(verticalDominates), horizontalDominates=\(horizontalDominates), horizontalSmall=\(horizontalIsSmall), verticalSmallForHorizontal=\(verticalIsSmallForHorizontal), source=\(source), momentum=\(hasMomentum), trigger=\(didTrigger)"
         if didTrigger {
             Logger.info(accumulationMessage)
         } else {
             Logger.debug(accumulationMessage)
+        }
+
+        if looksLikeLayoutSwipe, let layoutDirection {
+            state = .triggered
+            cancelScheduledReset()
+            Logger.info("Trackpad layout swipe detected: \(layoutDirection); firing callback once for this gesture")
+            onLayoutSwipeDetected?(layoutDirection)
+            beginCooldown(reason: "layout swipe triggered", duration: Constants.cooldown)
+            return
         }
 
         if looksLikeSwipeUp {
@@ -246,6 +315,24 @@ final class TrackpadGestureDetector {
             Logger.info("Trackpad swipe-down detected; firing callback once for this gesture")
             onSwipeDownDetected?()
             beginCooldown(reason: "swipe-down triggered", duration: Constants.cooldown)
+            return
+        }
+
+        if looksLikeSwipeLeft {
+            state = .triggered
+            cancelScheduledReset()
+            Logger.info("Trackpad swipe-left detected; firing callback once for this gesture")
+            onSwipeLeftDetected?()
+            beginCooldown(reason: "swipe-left triggered", duration: Constants.cooldown)
+            return
+        }
+
+        if looksLikeSwipeRight {
+            state = .triggered
+            cancelScheduledReset()
+            Logger.info("Trackpad swipe-right detected; firing callback once for this gesture")
+            onSwipeRightDetected?()
+            beginCooldown(reason: "swipe-right triggered", duration: Constants.cooldown)
             return
         }
 
@@ -292,6 +379,29 @@ final class TrackpadGestureDetector {
     private func cancelScheduledReset() {
         resetWorkItem?.cancel()
         resetWorkItem = nil
+    }
+
+    private func layoutSwipeDirection(accumulatedX: CGFloat, accumulatedY: CGFloat) -> TrackpadLayoutSwipeDirection? {
+        guard abs(accumulatedX) >= Constants.diagonalThresholdX,
+              abs(accumulatedY) >= Constants.diagonalThresholdY else {
+            return nil
+        }
+
+        let ratio = abs(accumulatedY / accumulatedX)
+        guard ratio >= 0.45, ratio <= 1.60 else {
+            return nil
+        }
+
+        switch (accumulatedX < 0, accumulatedY < 0) {
+        case (true, false):
+            return .upLeft
+        case (false, false):
+            return .upRight
+        case (true, true):
+            return .downLeft
+        case (false, true):
+            return .downRight
+        }
     }
 
     private func phaseDescription(rawValue: Int64) -> String {

@@ -2,6 +2,14 @@
 
 ## Unreleased
 
+## 0.6.7
+
+- Added a Settings window from the menu bar with core gesture, layout, diagnostics, system, and language controls.
+- Added Chinese and English UI language selection for the menu, Settings, permission prompts, gesture HUD, and layout preview.
+- Added a Layout Dashboard option in Settings for previewing directional layouts before they apply.
+- Improved swipe feedback with HUD progress and completion motion for close, minimize, blank-area arrange, and primary left/right layout gestures.
+- Kept the simple left/right primary layout gesture available when Layout Dashboard is off.
+
 ## 0.6.6
 
 - Improved visible-window auto arrange with more stable balanced layouts for four or more windows.

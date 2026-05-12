@@ -46,11 +46,17 @@ final class AccessibilityPermissionManager {
         NSApp.activate(ignoringOtherApps: true)
 
         let alert = NSAlert()
-        alert.messageText = "MissionSwipe needs Accessibility permission"
-        alert.informativeText = "Grant Accessibility access so MissionSwipe can identify and close the specific window under your mouse cursor. After granting permission, run the hotkey again."
+        alert.messageText = text(
+            en: "MissionSwipe needs Accessibility permission",
+            zh: "MissionSwipe 需要辅助功能权限"
+        )
+        alert.informativeText = text(
+            en: "Grant Accessibility access so MissionSwipe can identify and close the specific window under your mouse cursor. After granting permission, run the hotkey again.",
+            zh: "请授予辅助功能权限，这样 MissionSwipe 才能识别并关闭鼠标下方的具体窗口。授权后再试一次手势或快捷键。"
+        )
         alert.alertStyle = .warning
-        alert.addButton(withTitle: "Open Accessibility Settings")
-        alert.addButton(withTitle: "Later")
+        alert.addButton(withTitle: text(en: "Open Accessibility Settings", zh: "打开辅助功能设置"))
+        alert.addButton(withTitle: text(en: "Later", zh: "稍后"))
 
         let response = alert.runModal()
         if response == .alertFirstButtonReturn {
@@ -65,10 +71,16 @@ final class AccessibilityPermissionManager {
             NSApp.activate(ignoringOtherApps: true)
 
             let alert = NSAlert()
-            alert.messageText = "Restart MissionSwipe after granting permission"
-            alert.informativeText = "In System Settings, turn on MissionSwipe under Accessibility. MissionSwipe will quit now so macOS applies the permission cleanly. Open MissionSwipe again after granting access."
+            alert.messageText = self.text(
+                en: "Restart MissionSwipe after granting permission",
+                zh: "授权后请重新打开 MissionSwipe"
+            )
+            alert.informativeText = self.text(
+                en: "In System Settings, turn on MissionSwipe under Accessibility. MissionSwipe will quit now so macOS applies the permission cleanly. Open MissionSwipe again after granting access.",
+                zh: "请在系统设置的辅助功能里打开 MissionSwipe。MissionSwipe 现在会自动退出，方便 macOS 干净地应用权限；授权后重新打开 MissionSwipe 即可。"
+            )
             alert.alertStyle = .informational
-            alert.addButton(withTitle: "Quit MissionSwipe")
+            alert.addButton(withTitle: self.text(en: "Quit MissionSwipe", zh: "退出 MissionSwipe"))
 
             let autoQuitWorkItem = DispatchWorkItem {
                 Logger.info("Auto-quitting MissionSwipe after Accessibility restart guidance")
@@ -102,5 +114,9 @@ final class AccessibilityPermissionManager {
         }
 
         Logger.error("Unable to open Accessibility settings URL")
+    }
+
+    private func text(en: String, zh: String) -> String {
+        AppConfiguration.shared.language == .simplifiedChinese ? zh : en
     }
 }

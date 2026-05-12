@@ -1,13 +1,33 @@
 import Foundation
 
+enum AppLanguage: String, CaseIterable {
+    case english = "en"
+    case simplifiedChinese = "zh-Hans"
+
+    var displayName: String {
+        switch self {
+        case .english:
+            return "English"
+        case .simplifiedChinese:
+            return "中文"
+        }
+    }
+
+    static var systemDefault: AppLanguage {
+        Locale.preferredLanguages.first?.hasPrefix("zh") == true ? .simplifiedChinese : .english
+    }
+}
+
 final class AppConfiguration {
     static let shared = AppConfiguration()
 
     private let defaults: UserDefaults
+    private let languageKey = "Language"
     private let missionControlModeKey = "EnableMissionControlMode"
     private let swipeUpToCloseKey = "EnableSwipeUpToClose"
     private let swipeDownToMinimizeKey = "EnableSwipeDownToMinimize"
     private let blankAreaSwipeUpToArrangeKey = "EnableBlankAreaSwipeUpToArrange"
+    private let previewLayoutGesturesKey = "EnablePreviewLayoutGestures"
     private let secondMissionControlSwipeUpToArrangeKey = "EnableSecondMissionControlSwipeUpToArrange"
     private let missionControlGestureProbeKey = "EnableMissionControlGestureProbe"
     private let inputEventProbeKey = "EnableInputEventProbe"
@@ -17,6 +37,20 @@ final class AppConfiguration {
 
     init(defaults: UserDefaults = .standard) {
         self.defaults = defaults
+    }
+
+    var language: AppLanguage {
+        get {
+            guard let rawValue = defaults.string(forKey: languageKey),
+                  let language = AppLanguage(rawValue: rawValue) else {
+                return .systemDefault
+            }
+            return language
+        }
+        set {
+            defaults.set(newValue.rawValue, forKey: languageKey)
+            Logger.info("Language set to \(newValue.rawValue)")
+        }
     }
 
     var enableMissionControlMode: Bool {
@@ -68,6 +102,19 @@ final class AppConfiguration {
         set {
             defaults.set(newValue, forKey: blankAreaSwipeUpToArrangeKey)
             Logger.info("EnableBlankAreaSwipeUpToArrange set to \(newValue)")
+        }
+    }
+
+    var enablePreviewLayoutGestures: Bool {
+        get {
+            if defaults.object(forKey: previewLayoutGesturesKey) == nil {
+                return false
+            }
+            return defaults.bool(forKey: previewLayoutGesturesKey)
+        }
+        set {
+            defaults.set(newValue, forKey: previewLayoutGesturesKey)
+            Logger.info("EnablePreviewLayoutGestures set to \(newValue)")
         }
     }
 

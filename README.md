@@ -2,7 +2,7 @@
 
 MissionSwipe is a macOS AppKit prototype menu bar app. Its main path is Mission Control only: hover a Mission Control window thumbnail, then close it with `Control + Option + W` or a trackpad swipe-up gesture. MVP 0.6 also includes an experimental swipe-down minimize gesture.
 
-## Current version: MVP 0.6.6
+## Current version: MVP 0.6.7
 
 MVP 0.6 keeps the product boundary narrow: acting on hovered Mission Control thumbnails while normal desktop windows stay untouched. Swipe-down minimize is experimental and on by default for new installs.
 
@@ -16,17 +16,19 @@ Supported today:
 - Conservative Mission Control matching with confidence scoring
 - Trackpad swipe-up to close while Mission Control is active
 - Trackpad swipe-down to minimize while Mission Control is active
-- Experimental blank-area swipe-up and menu action to arrange visible windows
+- Blank-area swipe-up and menu action to arrange visible windows
+- Left/right primary-window layout gestures
+- Optional Layout Dashboard for directional layout preview
+- Settings window with Chinese/English language selection
 - Normal desktop hotkey/scroll safety rejection
 - Debug logging toggle, default off
 - Copy last successful action report to the clipboard
-- Debug menu actions for CG and AX diagnostics
+- Diagnostics actions for CG and AX troubleshooting
 - Concise success logs, with full window dumps reserved for failures or manual debug actions
 
 Still intentionally not implemented:
 
 - Overlay close buttons
-- Animations
 - Per-window X buttons
 - Screen recording
 - Image recognition or computer vision
@@ -57,7 +59,7 @@ scripts/build_app.sh
 This creates:
 
 - `dist/MissionSwipe.app`
-- `dist/MissionSwipe-0.6.6-macos.zip`
+- `dist/MissionSwipe-0.6.7-macos.zip`
 
 The script builds a universal app for Apple Silicon and Intel Macs by default. For a faster local-only build, run:
 
@@ -114,19 +116,20 @@ Having to run `tccutil reset` after every rebuild is a sign that macOS sees the 
 ## Menu items
 
 - `Close Mission Control Window`: runs the same Mission-Control-only close workflow as the hotkey.
-- `Enable Mission Control Close`: toggles `EnableMissionControlMode`. Default is on.
-- `Enable Swipe Up to Close`: toggles `EnableSwipeUpToClose`. Default is on.
-- `Enable Swipe Down to Minimize`: toggles `EnableSwipeDownToMinimize`. Default is on for new installs.
-- `Enable Blank Area Swipe Up to Arrange (Experimental)`: toggles blank-area arrange. Default is on.
 - `Arrange Visible Windows`: arranges visible desktop windows into a non-overlapping grid.
 - `Undo Last Arrange`: restores the previous frames from the last arrange action.
-- `Debug Logging`: toggles verbose `[DEBUG]` logs. Default is off.
-- `Copy Last Action Report`: copies the last successful Mission Control close/minimize summary to the clipboard.
-- `Dump Window List`: logs all current `CGWindowListCopyWindowInfo` entries.
-- `Dump AX Windows`: logs AX windows for visible app PIDs.
+- `Settings...`: opens gesture, layout, diagnostics, system, and language controls.
 - `Check Accessibility Permission`: refreshes the menu status line.
 - `Open Accessibility Settings`: opens the Accessibility privacy pane.
-- `Hide Menu Bar Icon...`: hides the menu bar icon while keeping gestures running. Restore it with:
+- `Quit MissionSwipe`: quits the background menu bar app.
+
+The Settings window includes:
+
+- `Mission Control mode`, `Swipe up to close`, `Swipe down to minimize`, and `Blank-area swipe up to arrange`
+- `Layout Dashboard`, which enables preview/confirmation for directional layouts
+- `Language`, with `English` and `中文`
+- Diagnostics actions: copy the last action report, dump CG windows, and dump AX windows
+- `Hide Menu Bar Icon`, which hides the menu bar icon while keeping gestures running. Restore it with:
 
   ```bash
   defaults write io.github.stevenalva.MissionSwipe HideStatusBarIcon -bool false; open -a MissionSwipe

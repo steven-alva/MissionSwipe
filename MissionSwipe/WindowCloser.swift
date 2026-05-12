@@ -91,6 +91,75 @@ final class WindowCloser {
         performMissionControlWindowAction(.minimize, usePreparedSwipeDetection: usePreparedSwipeDetection)
     }
 
+    func missionControlWindowUnderMouseIfActive(usePreparedSwipeDetection: Bool = false) -> AXWindowSnapshot? {
+        Logger.info("Starting Mission-Control-only target-window-under-mouse workflow")
+
+        guard permissionManager.isAccessibilityTrusted else {
+            Logger.error("Accessibility permission is missing. Cannot inspect AX windows for Mission Control target.")
+            return nil
+        }
+
+        let prepared = usePreparedSwipeDetection ? preparedSwipeAction : nil
+        let mousePoint: CGPoint
+        let missionControlDetection: MissionControlDetection
+
+        if let prepared,
+           Date().timeIntervalSince(prepared.createdAt) <= 1.0 {
+            mousePoint = prepared.mousePoint
+            missionControlDetection = prepared.detection
+            Logger.info("Using prepared Mission Control target detection: \(missionControlDetection.debugSummary)")
+        } else {
+            mousePoint = windowEnumerator.currentMouseLocationInCGWindowCoordinates()
+            missionControlDetection = missionControlDetector.detect(mousePoint: mousePoint)
+        }
+
+        guard missionControlDetection.isLikelyActive else {
+            Logger.info("Mission Control not active; cannot select target window. Detection: \(missionControlDetection.debugSummary)")
+            return nil
+        }
+
+        let candidates = windowEnumerator.visibleWindowCandidates(from: missionControlDetection.entries)
+        Logger.info("Mission Control target mode has \(candidates.count) real app CG candidate(s) after filtering")
+
+        guard !candidates.isEmpty else {
+            Logger.warning("No real app CG candidates are available for Mission Control target selection")
+            return nil
+        }
+
+        let geometryMatches = missionControlGeometryMatches(candidates: candidates, mousePoint: mousePoint)
+        let usableGeometryMatches = geometryMatches.filter { $0.confidence != .none }
+
+        guard let geometryMatch = usableGeometryMatches.max(by: { $0.score < $1.score }) else {
+            Logger.warning("No Mission Control geometry match had usable confidence for target selection")
+            return nil
+        }
+
+        Logger.info("Best Mission Control target geometry match: \(geometryMatch.debugSummary), usableGeometryMatches=\(usableGeometryMatches.count)")
+
+        let axWindows = axWindowController.windows(forPID: geometryMatch.candidate.ownerPID)
+        let samePIDCandidates = candidates.filter { $0.ownerPID == geometryMatch.candidate.ownerPID }
+        let rankedMatch = axWindowController.missionControlRankedMatch(
+            for: geometryMatch.candidate,
+            samePIDCandidates: samePIDCandidates,
+            axWindows: axWindows
+        )
+        let thumbnailMatch = axWindowController.bestMissionControlThumbnailMatch(for: geometryMatch.candidate, in: axWindows)
+
+        guard let selectedAXMatch = selectMissionControlAXMatch(rankedMatch: rankedMatch, thumbnailMatch: thumbnailMatch) else {
+            Logger.error("Mission Control target selection failed to match selected CG candidate to an AX window")
+            return nil
+        }
+
+        let finalConfidence = minConfidence(geometryMatch.confidence, selectedAXMatch.match.confidence)
+        guard finalConfidence >= missionControlCloseThreshold else {
+            Logger.warning("Mission Control target confidence \(finalConfidence) is below safe threshold \(missionControlCloseThreshold)")
+            return nil
+        }
+
+        Logger.info("Mission Control selected target window for arrange: source=\(selectedAXMatch.source), window={\(selectedAXMatch.match.window.debugSummary)}")
+        return selectedAXMatch.match.window
+    }
+
     private func performMissionControlWindowAction(_ action: MissionControlWindowAction, usePreparedSwipeDetection: Bool) -> MissionControlWindowActionResult {
         Logger.info("Starting Mission-Control-only \(action.verb)-window-under-mouse workflow")
 

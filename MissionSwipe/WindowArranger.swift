@@ -4,6 +4,29 @@ import CoreGraphics
 import Foundation
 
 final class WindowArranger {
+    enum PrimarySide: String {
+        case left
+        case right
+    }
+
+    enum PrimaryPlacement: String {
+        case left
+        case right
+        case topLeft
+        case topRight
+        case bottomLeft
+        case bottomRight
+
+        init(side: PrimarySide) {
+            switch side {
+            case .left:
+                self = .left
+            case .right:
+                self = .right
+            }
+        }
+    }
+
     private enum Constants {
         static let missionControlExitRetryDelay: TimeInterval = 0.18
         static let missionControlExitSettleDelay: TimeInterval = 0.45
@@ -52,13 +75,104 @@ final class WindowArranger {
             trigger: trigger,
             attempt: 1,
             startedAt: Date(),
-            preferCurrentMouseExitPoint: preferCurrentMouseExitPoint
+            preferCurrentMouseExitPoint: preferCurrentMouseExitPoint,
+            primaryWindow: nil,
+            primaryPlacement: nil
+        )
+    }
+
+    func arrangeAfterExitingMissionControl(
+        trigger: String,
+        primaryWindow: AXWindowSnapshot,
+        primarySide: PrimarySide,
+        preferCurrentMouseExitPoint: Bool = false
+    ) {
+        Logger.info("Primary-window auto arrange requested from \(trigger); primarySide=\(primarySide.rawValue), primary={\(primaryWindow.debugSummary)}")
+        requestMissionControlExit(preferCurrentMouseExitPoint: preferCurrentMouseExitPoint)
+        waitForMissionControlExitThenArrange(
+            trigger: trigger,
+            attempt: 1,
+            startedAt: Date(),
+            preferCurrentMouseExitPoint: preferCurrentMouseExitPoint,
+            primaryWindow: primaryWindow,
+            primaryPlacement: PrimaryPlacement(side: primarySide)
+        )
+    }
+
+    func arrangeAfterExitingMissionControl(
+        trigger: String,
+        primaryWindow: AXWindowSnapshot,
+        primaryPlacement: PrimaryPlacement,
+        preferCurrentMouseExitPoint: Bool = false
+    ) {
+        Logger.info("Primary-window auto arrange requested from \(trigger); primaryPlacement=\(primaryPlacement.rawValue), primary={\(primaryWindow.debugSummary)}")
+        requestMissionControlExit(preferCurrentMouseExitPoint: preferCurrentMouseExitPoint)
+        waitForMissionControlExitThenArrange(
+            trigger: trigger,
+            attempt: 1,
+            startedAt: Date(),
+            preferCurrentMouseExitPoint: preferCurrentMouseExitPoint,
+            primaryWindow: primaryWindow,
+            primaryPlacement: primaryPlacement
         )
     }
 
     func arrangeVisibleWindows(trigger: String) {
         Logger.info("Starting visible-window auto arrange from \(trigger)")
+        arrangeVisibleWindowsInternal(trigger: trigger, primaryWindow: nil, primarySide: nil)
+    }
 
+    func arrangeVisibleWindows(
+        trigger: String,
+        primaryWindow: AXWindowSnapshot,
+        primaryPlacement: PrimaryPlacement
+    ) {
+        Logger.info("Starting visible-window primary auto arrange from \(trigger); primaryPlacement=\(primaryPlacement.rawValue), primary={\(primaryWindow.debugSummary)}")
+        arrangeVisibleWindowsInternal(
+            trigger: trigger,
+            primaryWindow: primaryWindow,
+            primaryPlacement: primaryPlacement,
+            scopeToPrimaryDisplay: true
+        )
+    }
+
+    func arrangeableWindowCountForPreview(primaryWindow: AXWindowSnapshot) -> Int {
+        guard permissionManager.isAccessibilityTrusted else {
+            Logger.error("Accessibility permission is missing. Cannot count arrangeable windows for preview.")
+            return 0
+        }
+
+        let candidates = windowEnumerator.visibleWindowCandidates()
+        let arrangeableWindows = collectArrangeableWindows(from: candidates)
+        guard let primaryFrame = primaryWindow.frame else {
+            return arrangeableWindows.count
+        }
+
+        let displayLayouts = activeDisplayLayouts()
+        let displayBounds = displayLayouts.map(\.fullBounds)
+        let primaryDisplayIndex = displayIndex(for: primaryFrame, in: displayBounds)
+        let count = arrangeableWindows.filter { window in
+            displayIndex(for: window.displayFrame, in: displayBounds) == primaryDisplayIndex
+        }.count
+        Logger.info("Preview arrangeable window count scoped to display \(primaryDisplayIndex): count=\(count), total=\(arrangeableWindows.count)")
+        return count
+    }
+
+    private func arrangeVisibleWindowsInternal(trigger: String, primaryWindow: AXWindowSnapshot?, primarySide: PrimarySide?) {
+        arrangeVisibleWindowsInternal(
+            trigger: trigger,
+            primaryWindow: primaryWindow,
+            primaryPlacement: primarySide.map(PrimaryPlacement.init(side:)),
+            scopeToPrimaryDisplay: false
+        )
+    }
+
+    private func arrangeVisibleWindowsInternal(
+        trigger: String,
+        primaryWindow: AXWindowSnapshot?,
+        primaryPlacement: PrimaryPlacement?,
+        scopeToPrimaryDisplay: Bool
+    ) {
         guard permissionManager.isAccessibilityTrusted else {
             Logger.error("Accessibility permission is missing. Cannot arrange windows.")
             return
@@ -73,8 +187,18 @@ final class WindowArranger {
 
         undoSnapshots = arrangeableWindows.map(\.axWindow)
         let displayLayouts = activeDisplayLayouts()
-        let groupedWindows = Dictionary(grouping: arrangeableWindows) { window in
-            displayIndex(for: window.displayFrame, in: displayLayouts.map(\.fullBounds))
+        let displayBounds = displayLayouts.map(\.fullBounds)
+        var groupedWindows = Dictionary(grouping: arrangeableWindows) { window in
+            displayIndex(for: window.displayFrame, in: displayBounds)
+        }
+
+        if scopeToPrimaryDisplay,
+           let primaryFrame = primaryWindow?.frame {
+            let primaryDisplayIndex = displayIndex(for: primaryFrame, in: displayBounds)
+            groupedWindows = groupedWindows.filter { displayIndex, _ in
+                displayIndex == primaryDisplayIndex
+            }
+            Logger.info("Auto arrange scoped to primary display index \(primaryDisplayIndex)")
         }
 
         var movedCount = 0
@@ -85,7 +209,13 @@ final class WindowArranger {
 
             let layout = displayLayouts[displayIndex]
             Logger.info("Auto arrange display layout: full=\(layout.fullBounds.integral), usable=\(layout.usableBounds.integral)")
-            movedCount += arrange(windows: windows, inside: layout.usableBounds)
+            if let primaryWindow,
+               let primaryPlacement,
+               let primary = windows.first(where: { isSameWindow($0.axWindow, primaryWindow) }) {
+                movedCount += arrangeWithPrimaryWindow(primary, windows: windows, primaryPlacement: primaryPlacement, inside: layout.usableBounds)
+            } else {
+                movedCount += arrange(windows: windows, inside: layout.usableBounds)
+            }
         }
 
         Logger.info("Visible-window auto arrange finished. moved=\(movedCount), total=\(arrangeableWindows.count)")
@@ -114,6 +244,7 @@ final class WindowArranger {
 
     private func collectArrangeableWindows(from candidates: [CGWindowCandidate]) -> [ArrangeableWindow] {
         var seenWindowKeys = Set<String>()
+        var usedCandidateIDs = Set<CGWindowID>()
         var arrangeableWindows: [ArrangeableWindow] = []
         let visiblePIDs = Set(candidates.map(\.ownerPID))
         let candidatesByPID = Dictionary(grouping: candidates, by: \.ownerPID)
@@ -134,11 +265,17 @@ final class WindowArranger {
                 }
                 seenWindowKeys.insert(key)
 
-                let candidate = bestCandidate(for: axWindow, ownerPID: ownerPID, candidates: pidCandidates)
+                let candidate = bestCandidate(
+                    for: axWindow,
+                    ownerPID: ownerPID,
+                    candidates: pidCandidates,
+                    excluding: usedCandidateIDs
+                )
                 guard let candidate else {
                     Logger.info("Skipping AX window without a visible CG candidate: pid=\(ownerPID), window=\(axWindow.debugSummary)")
                     continue
                 }
+                usedCandidateIDs.insert(candidate.windowID)
 
                 arrangeableWindows.append(
                     ArrangeableWindow(
@@ -155,12 +292,18 @@ final class WindowArranger {
         return arrangeableWindows
     }
 
-    private func bestCandidate(for axWindow: AXWindowSnapshot, ownerPID: pid_t, candidates: [CGWindowCandidate]) -> CGWindowCandidate? {
+    private func bestCandidate(
+        for axWindow: AXWindowSnapshot,
+        ownerPID: pid_t,
+        candidates: [CGWindowCandidate],
+        excluding usedCandidateIDs: Set<CGWindowID>
+    ) -> CGWindowCandidate? {
         guard let frame = axWindow.frame else {
             return nil
         }
 
-        let matches = candidates.map { candidate -> (candidate: CGWindowCandidate, score: CGFloat) in
+        let availableCandidates = candidates.filter { !usedCandidateIDs.contains($0.windowID) }
+        let matches = availableCandidates.map { candidate -> (candidate: CGWindowCandidate, score: CGFloat) in
             let intersectionScore = intersectionArea(candidate.bounds, frame) / max(min(candidate.bounds.width * candidate.bounds.height, frame.width * frame.height), 1)
             let centerDistance = hypot(candidate.bounds.midX - frame.midX, candidate.bounds.midY - frame.midY)
             let normalizedDistanceScore = max(0, 1 - min(centerDistance / 500, 1))
@@ -176,7 +319,7 @@ final class WindowArranger {
 
         guard let best = matches.max(by: { $0.score < $1.score }),
               best.score >= 0.05 else {
-            Logger.info("No visible CG candidate matched AX window for pid=\(ownerPID), window=\(axWindow.debugSummary)")
+            Logger.info("No unused visible CG candidate matched AX window for pid=\(ownerPID), usedCandidates=\(usedCandidateIDs.count), window=\(axWindow.debugSummary)")
             return nil
         }
 
@@ -235,6 +378,177 @@ final class WindowArranger {
         }
 
         return movedCount
+    }
+
+    private func arrangeWithPrimaryWindow(
+        _ primary: ArrangeableWindow,
+        windows: [ArrangeableWindow],
+        primaryPlacement: PrimaryPlacement,
+        inside bounds: CGRect
+    ) -> Int {
+        let gap: CGFloat = 10
+        let primaryFrame = primaryFrame(for: primaryPlacement, inside: bounds, gap: gap)
+        let secondaryRegions = secondaryRegions(for: primaryPlacement, inside: bounds, primaryFrame: primaryFrame, gap: gap)
+
+        let secondaryWindows = windows
+            .filter { !isSameWindow($0.axWindow, primary.axWindow) }
+            .sorted {
+                if abs($0.originalFrame.minY - $1.originalFrame.minY) > 8 {
+                    return $0.originalFrame.minY < $1.originalFrame.minY
+                }
+                return $0.originalFrame.minX < $1.originalFrame.minX
+            }
+
+        var plannedFrames = [PlannedFrame(window: primary, frame: primaryFrame)]
+        plannedFrames += secondaryFrames(for: secondaryWindows, inside: secondaryRegions, gap: gap)
+
+        Logger.info(
+            "Auto arrange using primary placement layout: primaryOwner=\(primary.candidate.ownerName), primaryTitle=\"\(primary.axWindow.title)\", primaryPlacement=\(primaryPlacement.rawValue), secondaryCount=\(secondaryWindows.count)"
+        )
+
+        return apply(plannedFrames)
+    }
+
+    private func primaryFrame(for placement: PrimaryPlacement, inside bounds: CGRect, gap: CGFloat) -> CGRect {
+        switch placement {
+        case .left:
+            let width = floor((bounds.width - gap) * 0.50)
+            return CGRect(x: bounds.minX, y: bounds.minY, width: width, height: bounds.height).integral
+        case .right:
+            let width = floor((bounds.width - gap) * 0.50)
+            return CGRect(x: bounds.maxX - width, y: bounds.minY, width: width, height: bounds.height).integral
+        case .topLeft:
+            let width = floor((bounds.width - gap) * 0.50)
+            let height = floor((bounds.height - gap) * 0.50)
+            return CGRect(x: bounds.minX, y: bounds.minY, width: width, height: height).integral
+        case .topRight:
+            let width = floor((bounds.width - gap) * 0.50)
+            let height = floor((bounds.height - gap) * 0.50)
+            return CGRect(x: bounds.maxX - width, y: bounds.minY, width: width, height: height).integral
+        case .bottomLeft:
+            let width = floor((bounds.width - gap) * 0.50)
+            let height = floor((bounds.height - gap) * 0.50)
+            return CGRect(x: bounds.minX, y: bounds.maxY - height, width: width, height: height).integral
+        case .bottomRight:
+            let width = floor((bounds.width - gap) * 0.50)
+            let height = floor((bounds.height - gap) * 0.50)
+            return CGRect(x: bounds.maxX - width, y: bounds.maxY - height, width: width, height: height).integral
+        }
+    }
+
+    private func secondaryRegions(
+        for placement: PrimaryPlacement,
+        inside bounds: CGRect,
+        primaryFrame: CGRect,
+        gap: CGFloat
+    ) -> [CGRect] {
+        switch placement {
+        case .left:
+            return [CGRect(x: primaryFrame.maxX + gap, y: bounds.minY, width: bounds.maxX - primaryFrame.maxX - gap, height: bounds.height).integral]
+        case .right:
+            return [CGRect(x: bounds.minX, y: bounds.minY, width: primaryFrame.minX - bounds.minX - gap, height: bounds.height).integral]
+        case .topLeft:
+            return [
+                CGRect(x: primaryFrame.maxX + gap, y: bounds.minY, width: bounds.maxX - primaryFrame.maxX - gap, height: bounds.height).integral,
+                CGRect(x: bounds.minX, y: primaryFrame.maxY + gap, width: primaryFrame.width, height: bounds.maxY - primaryFrame.maxY - gap).integral
+            ]
+        case .topRight:
+            return [
+                CGRect(x: bounds.minX, y: bounds.minY, width: primaryFrame.minX - bounds.minX - gap, height: bounds.height).integral,
+                CGRect(x: primaryFrame.minX, y: primaryFrame.maxY + gap, width: primaryFrame.width, height: bounds.maxY - primaryFrame.maxY - gap).integral
+            ]
+        case .bottomLeft:
+            return [
+                CGRect(x: primaryFrame.maxX + gap, y: bounds.minY, width: bounds.maxX - primaryFrame.maxX - gap, height: bounds.height).integral,
+                CGRect(x: bounds.minX, y: bounds.minY, width: primaryFrame.width, height: primaryFrame.minY - bounds.minY - gap).integral
+            ]
+        case .bottomRight:
+            return [
+                CGRect(x: bounds.minX, y: bounds.minY, width: primaryFrame.minX - bounds.minX - gap, height: bounds.height).integral,
+                CGRect(x: primaryFrame.minX, y: bounds.minY, width: primaryFrame.width, height: primaryFrame.minY - bounds.minY - gap).integral
+            ]
+        }
+    }
+
+    private func secondaryFrames(
+        for windows: [ArrangeableWindow],
+        inside regions: [CGRect],
+        gap: CGFloat
+    ) -> [PlannedFrame] {
+        let usableRegions = regions.filter { !$0.isNull && !$0.isEmpty && $0.width >= 80 && $0.height >= 80 }
+        guard !windows.isEmpty, !usableRegions.isEmpty else {
+            return []
+        }
+
+        guard usableRegions.count > 1, windows.count > 1 else {
+            return secondaryColumnFrames(for: windows, inside: usableRegions[0], gap: gap)
+        }
+
+        let totalArea = usableRegions.reduce(CGFloat(0)) { partial, region in
+            partial + region.width * region.height
+        }
+        var remainingWindows = windows
+        var frames: [PlannedFrame] = []
+
+        for (index, region) in usableRegions.enumerated() {
+            guard !remainingWindows.isEmpty else {
+                break
+            }
+
+            let count: Int
+            if index == usableRegions.count - 1 {
+                count = remainingWindows.count
+            } else {
+                let proportional = Int(round(CGFloat(windows.count) * (region.width * region.height / max(totalArea, 1))))
+                count = min(max(1, proportional), remainingWindows.count - 1)
+            }
+
+            let regionWindows = Array(remainingWindows.prefix(count))
+            remainingWindows.removeFirst(count)
+            frames += secondaryColumnFrames(for: regionWindows, inside: region, gap: gap)
+        }
+
+        return frames
+    }
+
+    private func secondaryColumnFrames(
+        for windows: [ArrangeableWindow],
+        inside bounds: CGRect,
+        gap: CGFloat
+    ) -> [PlannedFrame] {
+        guard !windows.isEmpty else {
+            return []
+        }
+
+        if windows.count <= 3 {
+            let cellHeight = floor((bounds.height - CGFloat(windows.count - 1) * gap) / CGFloat(windows.count))
+            return windows.enumerated().map { index, window in
+                let y = bounds.minY + CGFloat(index) * (cellHeight + gap)
+                let height = index == windows.count - 1 ? bounds.maxY - y : cellHeight
+                return PlannedFrame(
+                    window: window,
+                    frame: CGRect(x: bounds.minX, y: y, width: bounds.width, height: height).integral
+                )
+            }
+        }
+
+        let columns = 2
+        let rows = Int(ceil(Double(windows.count) / Double(columns)))
+        let cellWidth = floor((bounds.width - CGFloat(columns - 1) * gap) / CGFloat(columns))
+        let cellHeight = floor((bounds.height - CGFloat(rows - 1) * gap) / CGFloat(rows))
+
+        return windows.enumerated().map { index, window in
+            let row = index / columns
+            let column = index % columns
+            let x = bounds.minX + CGFloat(column) * (cellWidth + gap)
+            let y = bounds.minY + CGFloat(row) * (cellHeight + gap)
+            let width = column == columns - 1 ? bounds.maxX - x : cellWidth
+            let height = row == rows - 1 ? bounds.maxY - y : cellHeight
+            return PlannedFrame(
+                window: window,
+                frame: CGRect(x: x, y: y, width: width, height: height).integral
+            )
+        }
     }
 
     private func arrangeBalancedRows(_ windows: [ArrangeableWindow], inside bounds: CGRect) -> Int {
@@ -418,6 +732,23 @@ final class WindowArranger {
         }
 
         return area * max(weight, 0.50)
+    }
+
+    private func isSameWindow(_ lhs: AXWindowSnapshot, _ rhs: AXWindowSnapshot) -> Bool {
+        if CFEqual(lhs.element, rhs.element) {
+            return true
+        }
+
+        guard lhs.title == rhs.title,
+              let lhsFrame = lhs.frame,
+              let rhsFrame = rhs.frame else {
+            return false
+        }
+
+        return abs(lhsFrame.minX - rhsFrame.minX) <= 24 &&
+            abs(lhsFrame.minY - rhsFrame.minY) <= 24 &&
+            abs(lhsFrame.width - rhsFrame.width) <= 32 &&
+            abs(lhsFrame.height - rhsFrame.height) <= 32
     }
 
     private func gridColumnCount(for count: Int) -> Int {
@@ -634,7 +965,9 @@ final class WindowArranger {
         trigger: String,
         attempt: Int,
         startedAt: Date,
-        preferCurrentMouseExitPoint: Bool
+        preferCurrentMouseExitPoint: Bool,
+        primaryWindow: AXWindowSnapshot?,
+        primaryPlacement: PrimaryPlacement?
     ) {
         let detection = currentMissionControlDetection()
         if !detection.isLikelyActive {
@@ -643,7 +976,12 @@ final class WindowArranger {
                 "Mission Control exited before auto arrange: trigger=\(trigger), attempts=\(attempt), elapsed=\(String(format: "%.2f", elapsed))s, detection=\(detection.debugSummary)"
             )
             DispatchQueue.main.asyncAfter(deadline: .now() + Constants.missionControlExitSettleDelay) { [weak self] in
-                self?.arrangeVisibleWindows(trigger: trigger)
+                self?.arrangeVisibleWindowsInternal(
+                    trigger: trigger,
+                    primaryWindow: primaryWindow,
+                    primaryPlacement: primaryPlacement,
+                    scopeToPrimaryDisplay: false
+                )
             }
             return
         }
@@ -668,7 +1006,9 @@ final class WindowArranger {
                 trigger: trigger,
                 attempt: attempt + 1,
                 startedAt: startedAt,
-                preferCurrentMouseExitPoint: preferCurrentMouseExitPoint
+                preferCurrentMouseExitPoint: preferCurrentMouseExitPoint,
+                primaryWindow: primaryWindow,
+                primaryPlacement: primaryPlacement
             )
         }
     }
