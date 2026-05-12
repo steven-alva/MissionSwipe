@@ -553,7 +553,7 @@ final class WindowArranger {
 
     private func arrangeBalancedRows(_ windows: [ArrangeableWindow], inside bounds: CGRect) -> Int {
         let gap: CGFloat = 10
-        let rowCounts = balancedRowCounts(for: windows.count)
+        let rowCounts = balancedRowCounts(for: windows.count, inside: bounds, gap: gap)
         let rowHeight = floor((bounds.height - CGFloat(rowCounts.count - 1) * gap) / CGFloat(rowCounts.count))
         let rowSummary = rowCounts.map(String.init).joined(separator: "+")
 
@@ -593,18 +593,50 @@ final class WindowArranger {
         return apply(plannedFrames)
     }
 
-    private func balancedRowCounts(for count: Int) -> [Int] {
+    private func balancedRowCounts(for count: Int, inside bounds: CGRect, gap: CGFloat) -> [Int] {
         guard count > 0 else {
             return []
         }
 
+        let minCellWidth: CGFloat = 450
+        let minCellHeight: CGFloat = 300
+
         if count == 4 {
-            return [2, 2]
+            let cellWidth = (bounds.width - gap) / 2
+            if cellWidth >= minCellWidth {
+                return [2, 2]
+            }
+            // Fall through to adaptive logic if 2 columns is too wide
         }
 
-        let rowCount = max(1, Int(floor(sqrt(Double(count)))))
-        let baseCount = count / rowCount
-        let remainder = count % rowCount
+        // Compute maximum columns that satisfy the minimum cell width
+        let maxColumns = max(1, Int(floor((bounds.width + gap) / (minCellWidth + gap))))
+        // Compute maximum rows that satisfy the minimum cell height
+        let maxRows = max(1, Int(floor((bounds.height + gap) / (minCellHeight + gap))))
+
+        // Start with the sqrt-based row count (original logic)
+        var rowCount = max(1, Int(floor(sqrt(Double(count)))))
+        var columnsPerRow = Int(ceil(Double(count) / Double(rowCount)))
+
+        // Reduce columns if they would produce cells narrower than the minimum
+        if columnsPerRow > maxColumns {
+            columnsPerRow = maxColumns
+            rowCount = Int(ceil(Double(count) / Double(columnsPerRow)))
+        }
+
+        // Allow exceeding maxRows by 1 so all windows are placed rather than
+        // silently dropped.  The height per cell may be a bit shorter than
+        // minCellHeight, but that is far preferable to leaving windows
+        // un-arranged.
+        let hardMaxRows = maxRows + 1
+        if rowCount > hardMaxRows {
+            rowCount = hardMaxRows
+        }
+
+        // Distribute windows across rows as evenly as possible
+        let effectiveCount = min(count, rowCount * columnsPerRow)
+        let baseCount = effectiveCount / rowCount
+        let remainder = effectiveCount % rowCount
 
         return (0..<rowCount).map { index in
             baseCount + (index < remainder ? 1 : 0)
