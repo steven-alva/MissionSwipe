@@ -31,8 +31,10 @@ final class WindowArranger {
         let totalWindows: Int
         let arrangedCount: Int
         let minimizedCount: Int
+        let stackedCount: Int
         let stubbornCount: Int
         let adapted: Bool
+        let strategy: SmartFitOverflowStrategy
     }
 
     private enum Constants {
@@ -41,8 +43,12 @@ final class WindowArranger {
         static let maxMissionControlExitAttempts = 8
         static let stubbornSizeSlack: CGFloat = 42
         static let overlapMinimumArea: CGFloat = 2_500
-        static let overlapMinimumRatio: CGFloat = 0.06
         static let smartFitMinWindowCount = 4
+        static let windowGap: CGFloat = 4
+        static let stackPeekOffsetX: CGFloat = 48
+        static let stackPeekOffsetY: CGFloat = 48
+        static let stackPeekMinUsableWidth: CGFloat = 360
+        static let stackPeekMinUsableHeight: CGFloat = 260
     }
 
     private struct ArrangeableWindow {
@@ -78,12 +84,15 @@ final class WindowArranger {
     private struct ArrangeOutcome {
         var arrangedCount: Int = 0
         var minimizedCount: Int = 0
+        var stackedCount: Int = 0
         var stubbornCount: Int = 0
         var adapted: Bool = false
     }
 
     var isSmartFitEnabled: Bool = true
-    var largeScreenWindowCapacityOverride: Int = 9
+    var smartFitCapacityProfile: SmartFitCapacityProfile = .default
+    var smartFitOverflowStrategy: SmartFitOverflowStrategy = .minimize
+    var smartFitOverlapTolerance: Double = 0.06
     var onSmartFitReport: ((SmartFitReport) -> Void)?
 
     private let permissionManager: AccessibilityPermissionManager
@@ -244,6 +253,7 @@ final class WindowArranger {
 
         var movedCount = 0
         var totalMinimized = 0
+        var totalStacked = 0
         var totalStubborn = 0
         var didAdaptAny = false
         for (displayIndex, windows) in groupedWindows {
@@ -259,27 +269,31 @@ final class WindowArranger {
                 let result = arrangeWithPrimaryWindow(primary, windows: windows, primaryPlacement: primaryPlacement, inside: layout.usableBounds)
                 movedCount += result.arrangedCount
                 totalMinimized += result.minimizedCount
+                totalStacked += result.stackedCount
                 totalStubborn += result.stubbornCount
                 if result.adapted { didAdaptAny = true }
             } else {
                 let result = arrange(windows: windows, inside: layout.usableBounds, screen: layout.screen)
                 movedCount += result.arrangedCount
                 totalMinimized += result.minimizedCount
+                totalStacked += result.stackedCount
                 totalStubborn += result.stubbornCount
                 if result.adapted { didAdaptAny = true }
             }
         }
 
         Logger.info(
-            "Visible-window auto arrange finished. moved=\(movedCount), minimized=\(totalMinimized), stubborn=\(totalStubborn), adapted=\(didAdaptAny), total=\(arrangeableWindows.count)"
+            "Visible-window auto arrange finished. moved=\(movedCount), minimized=\(totalMinimized), stacked=\(totalStacked), stubborn=\(totalStubborn), adapted=\(didAdaptAny), strategy=\(smartFitOverflowStrategy.rawValue), total=\(arrangeableWindows.count)"
         )
 
         let report = SmartFitReport(
             totalWindows: arrangeableWindows.count,
             arrangedCount: movedCount,
             minimizedCount: totalMinimized,
+            stackedCount: totalStacked,
             stubbornCount: totalStubborn,
-            adapted: didAdaptAny
+            adapted: didAdaptAny,
+            strategy: smartFitOverflowStrategy
         )
         onSmartFitReport?(report)
     }
@@ -447,6 +461,60 @@ final class WindowArranger {
         return outcome
     }
 
+    private func arrangeStackWithPeek(_ windows: [ArrangeableWindow], inside bounds: CGRect) -> ArrangeOutcome {
+        // Sort by area descending: biggest window goes to the back (placed and raised
+        // first; later raises push it down the z-order). Smallest is raised last so it
+        // ends up fully visible on top.
+        let bigToSmall = windows.sorted {
+            ($0.originalFrame.width * $0.originalFrame.height) >
+            ($1.originalFrame.width * $1.originalFrame.height)
+        }
+        let count = bigToSmall.count
+        guard count > 0 else {
+            return ArrangeOutcome()
+        }
+
+        // Each window fills from its offset corner down to the screen's bottom-right.
+        // Each subsequent layer is pushed (offsetX, offsetY) in/down, so every layer
+        // shows a peek strip on its top and left edges where the layer behind it sticks
+        // out. Right and bottom edges all align at the screen edge.
+        //
+        // If there are so many windows that the front-most one would shrink below a
+        // usable size, the offset is scaled down proportionally so everyone stays
+        // big enough to use.
+        let stepsAvailable = CGFloat(max(1, count - 1))
+        let maxOffsetX = max(0, (bounds.width - Constants.stackPeekMinUsableWidth) / stepsAvailable)
+        let maxOffsetY = max(0, (bounds.height - Constants.stackPeekMinUsableHeight) / stepsAvailable)
+        let offsetX = min(Constants.stackPeekOffsetX, maxOffsetX)
+        let offsetY = min(Constants.stackPeekOffsetY, maxOffsetY)
+
+        Logger.info("Stack-with-peek arrange: count=\(count), bounds=\(bounds.integral), offset=(\(Int(offsetX)),\(Int(offsetY)))")
+
+        var outcome = ArrangeOutcome()
+        for (index, window) in bigToSmall.enumerated() {
+            let stepX = CGFloat(index) * offsetX
+            let stepY = CGFloat(index) * offsetY
+            let x = bounds.minX + stepX
+            let y = bounds.minY + stepY
+            let width = bounds.maxX - x
+            let height = bounds.maxY - y
+
+            let frame = CGRect(x: x, y: y, width: width, height: height).integral
+            Logger.info("Stack-with-peek target: owner=\(window.candidate.ownerName), title=\"\(window.axWindow.title)\", layer=\(index), originalArea=\(Int(window.originalFrame.width * window.originalFrame.height)), frame=\(frame)")
+            if setFrame(frame, for: window.axWindow.element) {
+                outcome.stackedCount += 1
+            }
+
+            // Raise as we go: iteration order becomes z-order.
+            // Big-to-small iteration → biggest raised first (deepest), smallest raised
+            // last (on top).
+            AXUIElementPerformAction(window.axWindow.element, kAXRaiseAction as CFString)
+        }
+
+        outcome.arrangedCount = outcome.stackedCount
+        return outcome
+    }
+
     private func arrangeSimpleGrid(_ windows: [ArrangeableWindow], inside bounds: CGRect) -> ArrangeOutcome {
         let count = windows.count
         guard count > 0 else {
@@ -454,7 +522,7 @@ final class WindowArranger {
         }
         let columns = gridColumnCount(for: count)
         let rows = Int(ceil(Double(count) / Double(columns)))
-        let gap: CGFloat = 10
+        let gap: CGFloat = Constants.windowGap
         let cellWidth = (bounds.width - CGFloat(columns - 1) * gap) / CGFloat(columns)
         let cellHeight = (bounds.height - CGFloat(rows - 1) * gap) / CGFloat(rows)
 
@@ -479,7 +547,7 @@ final class WindowArranger {
         primaryPlacement: PrimaryPlacement,
         inside bounds: CGRect
     ) -> ArrangeOutcome {
-        let gap: CGFloat = 10
+        let gap: CGFloat = Constants.windowGap
         let primaryFrame = primaryFrame(for: primaryPlacement, inside: bounds, gap: gap)
         let secondaryRegions = secondaryRegions(for: primaryPlacement, inside: bounds, primaryFrame: primaryFrame, gap: gap)
 
@@ -645,7 +713,7 @@ final class WindowArranger {
     }
 
     private func arrangeBalancedRows(_ windows: [ArrangeableWindow], inside bounds: CGRect) -> ArrangeOutcome {
-        let gap: CGFloat = 10
+        let gap: CGFloat = Constants.windowGap
         let rowCounts = balancedRowCounts(for: windows.count)
         let rowHeight = floor((bounds.height - CGFloat(rowCounts.count - 1) * gap) / CGFloat(rowCounts.count))
         let rowSummary = rowCounts.map(String.init).joined(separator: "+")
@@ -705,7 +773,7 @@ final class WindowArranger {
     }
 
     private func arrangeThreeWindows(_ windows: [ArrangeableWindow], inside bounds: CGRect) -> ArrangeOutcome {
-        let gap: CGFloat = 10
+        let gap: CGFloat = Constants.windowGap
         guard let primary = windows.max(by: { lhs, rhs in
             let lhsScore = primaryWindowScore(lhs)
             let rhsScore = primaryWindowScore(rhs)
@@ -810,6 +878,10 @@ final class WindowArranger {
         }
 
         Logger.info("Smart Fit verify: stubborn=\(stubbornFrames.count), overlap=\(hasOverlap), allowMinimize=\(allowMinimization); running adaptive second pass")
+        for stubborn in stubbornFrames {
+            let actualText = stubborn.actual.map { "\($0.integral)" } ?? "nil"
+            Logger.info("Smart Fit stubborn detail: owner=\(stubborn.window.candidate.ownerName), title=\"\(stubborn.window.axWindow.title)\", target=\(stubborn.target.integral), actual=\(actualText), didMove=\(stubborn.didMove)")
+        }
 
         var effective = applied.map { frame -> EffectiveWindow in
             let stubborn = isStubborn(frame)
@@ -822,31 +894,83 @@ final class WindowArranger {
             return EffectiveWindow(window: frame.window, size: clampedSize, isStubborn: stubborn)
         }
 
+        // First, try the adaptive packing without dropping anyone.
+        if let frames = adaptiveLayout(effective, inside: bounds, gap: gap) {
+            let secondPass = applyAndMeasure(frames)
+            var outcome = ArrangeOutcome()
+            outcome.stubbornCount = stubbornFrames.count
+            outcome.adapted = true
+            outcome.arrangedCount = secondPass.filter(\.didMove).count
+            return outcome
+        }
+
+        // Adaptive didn't fit everyone. Apply the user's chosen overflow strategy.
+        // If we're on the primary-placement path (allowMinimization=false), the user
+        // explicitly picked the layout — never silently rewrite it. Keep first-pass.
+        if !allowMinimization {
+            Logger.info("Smart Fit adaptive layout did not fit, but keeping first-pass placement: minimization disabled for this path (primary placement)")
+            var outcome = ArrangeOutcome()
+            outcome.stubbornCount = stubbornFrames.count
+            outcome.adapted = false
+            outcome.arrangedCount = applied.filter(\.didMove).count
+            return outcome
+        }
+
+        switch smartFitOverflowStrategy {
+        case .tolerateOverlap:
+            Logger.info("Smart Fit: tolerateOverlap strategy keeps first-pass placement (overlap=\(hasOverlap))")
+            var outcome = ArrangeOutcome()
+            outcome.stubbornCount = stubbornFrames.count
+            outcome.adapted = false
+            outcome.arrangedCount = applied.filter(\.didMove).count
+            return outcome
+
+        case .stackWithPeek:
+            if !hasOverlap {
+                // No real overlap; first-pass is good enough. No need to disturb the tile.
+                Logger.info("Smart Fit: stackWithPeek fallback skipped — no meaningful overlap, keeping first-pass tile")
+                var outcome = ArrangeOutcome()
+                outcome.stubbornCount = stubbornFrames.count
+                outcome.adapted = false
+                outcome.arrangedCount = applied.filter(\.didMove).count
+                return outcome
+            }
+            Logger.info("Smart Fit: stackWithPeek fallback engaging because tile produced overlap")
+            let windows = plannedFrames.map(\.window)
+            var stackOutcome = arrangeStackWithPeek(windows, inside: bounds)
+            stackOutcome.stubbornCount = stubbornFrames.count
+            stackOutcome.adapted = true
+            return stackOutcome
+
+        case .minimize:
+            break
+        }
+
+        // Minimize strategy continues below: only drop when there's real overlap.
+        if !hasOverlap {
+            Logger.info("Smart Fit: minimize strategy keeps first-pass placement — no overlap above tolerance (\(String(format: "%.0f", smartFitOverlapTolerance * 100))%)")
+            var outcome = ArrangeOutcome()
+            outcome.stubbornCount = stubbornFrames.count
+            outcome.adapted = false
+            outcome.arrangedCount = applied.filter(\.didMove).count
+            return outcome
+        }
+
+        // We have real overlap. Drop the least-recently-used window and retry, up to 3 attempts.
         var droppedToMinimize: [ArrangeableWindow] = []
         var adaptiveFrames: [PlannedFrame]?
 
-        if allowMinimization {
-            for attempt in 0..<3 {
-                if let frames = adaptiveLayout(effective, inside: bounds, gap: gap) {
-                    adaptiveFrames = frames
-                    if attempt > 0 {
-                        Logger.info("Smart Fit adaptive layout succeeded after dropping \(attempt) window(s)")
-                    }
-                    break
-                }
-                guard let dropIndex = chooseDropIndex(effective) else {
-                    break
-                }
-                let dropped = effective.remove(at: dropIndex)
-                droppedToMinimize.append(dropped.window)
-                Logger.info("Smart Fit dropping window to retry adaptive layout: owner=\(dropped.window.candidate.ownerName), title=\"\(dropped.window.axWindow.title)\"")
+        for attempt in 1...3 {
+            guard let dropIndex = chooseDropIndex(effective) else {
+                break
             }
-        } else {
-            // User explicitly picked this layout (e.g. left/right primary placement); never silently minimize.
-            // Try the adaptive pack once; if it doesn't fit, leave the first-pass placement alone.
-            adaptiveFrames = adaptiveLayout(effective, inside: bounds, gap: gap)
-            if adaptiveFrames == nil {
-                Logger.info("Smart Fit adaptive layout did not fit in fixed-layout mode; keeping first-pass placement without minimizing")
+            let dropped = effective.remove(at: dropIndex)
+            droppedToMinimize.append(dropped.window)
+            Logger.info("Smart Fit dropping window to retry adaptive layout (attempt \(attempt)): owner=\(dropped.window.candidate.ownerName), title=\"\(dropped.window.axWindow.title)\"")
+            if let frames = adaptiveLayout(effective, inside: bounds, gap: gap) {
+                adaptiveFrames = frames
+                Logger.info("Smart Fit adaptive layout succeeded after dropping \(attempt) window(s)")
+                break
             }
         }
 
@@ -883,13 +1007,14 @@ final class WindowArranger {
         guard frames.count > 1 else {
             return false
         }
+        let ratioThreshold = CGFloat(smartFitOverlapTolerance)
         for lhsIndex in frames.indices {
             for rhsIndex in frames.indices where rhsIndex > lhsIndex {
                 let lhs = frames[lhsIndex]
                 let rhs = frames[rhsIndex]
                 let overlap = intersectionArea(lhs, rhs)
                 let smallerArea = max(1, min(lhs.width * lhs.height, rhs.width * rhs.height))
-                if overlap > Constants.overlapMinimumArea, overlap / smallerArea > Constants.overlapMinimumRatio {
+                if overlap > Constants.overlapMinimumArea, overlap / smallerArea > ratioThreshold {
                     return true
                 }
             }
@@ -1136,41 +1261,41 @@ final class WindowArranger {
     }
 
     private func windowCapacity(for screen: NSScreen?) -> Int {
-        let override = max(1, largeScreenWindowCapacityOverride)
+        let profile = smartFitCapacityProfile
 
         if let screen, let inches = diagonalInches(for: screen) {
             switch inches {
             case ..<15.5:
-                return 5
+                return profile.compact
             case 15.5..<20.5:
-                return 6
+                return profile.laptop
             case 20.5..<25.5:
-                return 6
+                return profile.desktop
             case 25.5..<29.5:
-                return 9
+                return profile.large
             default:
-                return override
+                return profile.huge
             }
         }
 
         // Fallback when physical size is not reported (virtual or unknown display).
         // Estimate from logical point dimensions of the screen.
         guard let screen else {
-            return 9
+            return profile.large
         }
         let frame = screen.frame
         let diagonalPts = sqrt(frame.width * frame.width + frame.height * frame.height)
         switch diagonalPts {
         case ..<1800:
-            return 5
+            return profile.compact
         case 1800..<2200:
-            return 6
+            return profile.laptop
         case 2200..<2900:
-            return 6
+            return profile.desktop
         case 2900..<3500:
-            return 9
+            return profile.large
         default:
-            return override
+            return profile.huge
         }
     }
 
@@ -1233,11 +1358,26 @@ final class WindowArranger {
             return false
         }
 
-        // Move the window to the target display first. If we write size before position,
-        // macOS computes the size on whatever display the window currently lives on, and
-        // a different scale factor on the target display silently corrupts the result.
+        let currentBeforeMove = currentFrame(for: element)
+        let crossDisplay = isCrossDisplayMove(target: frame, currentFrame: currentBeforeMove)
+        if crossDisplay {
+            Logger.info("setFrame is moving the window across displays; using settle delays. current=\(currentBeforeMove?.integral.debugDescription ?? "nil"), target=\(frame.integral)")
+        }
+
+        // Cross-display moves are racy. macOS asynchronously updates the window's display
+        // assignment after a position write, so a size write that follows immediately can land
+        // on the old display's coordinate space and produce a wrong final size. We sequence
+        // the writes with small run-loop pumps so the display change settles between steps.
         let initialPositionResult = AXUIElementSetAttributeValue(element, kAXPositionAttribute as CFString, positionValue)
+        if crossDisplay {
+            pumpRunLoop(forSeconds: 0.06)
+        }
+
         let sizeResult = AXUIElementSetAttributeValue(element, kAXSizeAttribute as CFString, sizeValue)
+        if crossDisplay {
+            pumpRunLoop(forSeconds: 0.04)
+        }
+
         let postSizePositionResult = AXUIElementSetAttributeValue(element, kAXPositionAttribute as CFString, positionValue)
 
         if initialPositionResult == .success, sizeResult == .success, postSizePositionResult == .success {
@@ -1245,25 +1385,46 @@ final class WindowArranger {
                 return true
             }
 
+            if crossDisplay {
+                pumpRunLoop(forSeconds: 0.04)
+            }
             let retrySizeResult = AXUIElementSetAttributeValue(element, kAXSizeAttribute as CFString, sizeValue)
             let finalPositionResult = AXUIElementSetAttributeValue(element, kAXPositionAttribute as CFString, positionValue)
             if retrySizeResult == .success, finalPositionResult == .success {
                 if let actualFrame = currentFrame(for: element) {
-                    Logger.warning("Arranged window settled away from target after retry. target=\(frame), actual=\(actualFrame.integral)")
+                    Logger.warning("Arranged window settled away from target after retry. target=\(frame), actual=\(actualFrame.integral), crossDisplay=\(crossDisplay)")
                 }
                 return true
             }
 
             Logger.warning(
-                "Arranged window did not match target and retry failed. retrySizeError=\(retrySizeResult.rawValue), finalPositionError=\(finalPositionResult.rawValue)"
+                "Arranged window did not match target and retry failed. retrySizeError=\(retrySizeResult.rawValue), finalPositionError=\(finalPositionResult.rawValue), crossDisplay=\(crossDisplay)"
             )
             return true
         }
 
         Logger.warning(
-            "Failed to set arranged window frame. initialPositionError=\(initialPositionResult.rawValue), sizeError=\(sizeResult.rawValue), postSizePositionError=\(postSizePositionResult.rawValue)"
+            "Failed to set arranged window frame. initialPositionError=\(initialPositionResult.rawValue), sizeError=\(sizeResult.rawValue), postSizePositionError=\(postSizePositionResult.rawValue), crossDisplay=\(crossDisplay)"
         )
         return false
+    }
+
+    private func isCrossDisplayMove(target: CGRect, currentFrame: CGRect?) -> Bool {
+        guard let currentFrame else {
+            return false
+        }
+        let layouts = activeDisplayLayouts().map(\.fullBounds)
+        guard layouts.count > 1 else {
+            return false
+        }
+        let currentDisplay = displayIndex(for: currentFrame, in: layouts)
+        let targetDisplay = displayIndex(for: target, in: layouts)
+        return currentDisplay != targetDisplay
+    }
+
+    private func pumpRunLoop(forSeconds seconds: TimeInterval) {
+        let deadline = Date(timeIntervalSinceNow: seconds)
+        RunLoop.main.run(until: deadline)
     }
 
     private func frameMatchesTarget(element: AXUIElement, target: CGRect) -> Bool {

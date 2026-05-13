@@ -21,7 +21,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     private let permissionManager = AccessibilityPermissionManager()
-    private let hotkeyManager = GlobalHotkeyManager()
     private let windowCloser = WindowCloser()
     private let windowArranger = WindowArranger()
     private let windowEnumerator = WindowEnumerator()
@@ -36,17 +35,21 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private let configuration = AppConfiguration.shared
     private var statusBarController: StatusBarController?
     private var settingsWindowController: SettingsWindowController?
+    private var smartFitCapacityWindowController: SmartFitCapacityWindowController?
+    private var smartFitAdvancedWindowController: SmartFitAdvancedWindowController?
     private var isArrangingFromSecondMissionControlSwipe = false
     private var pendingLayoutPreviewWorkItem: DispatchWorkItem?
     private var previewLayoutGestureCandidate: PreviewLayoutGestureCandidate?
     private var lastPreviewLayoutHUDUpdateAt: Date?
 
     func applicationDidFinishLaunching(_ notification: Notification) {
-        Logger.info("MissionSwipe launching")
+        Logger.info("MissionSwipe launching (devBuild=\(AppConfiguration.isDevBuild), debugLogging=\(configuration.enableDebugLogging))")
         NSApp.setActivationPolicy(.accessory)
 
         windowArranger.isSmartFitEnabled = configuration.enableSmartFitArrange
-        windowArranger.largeScreenWindowCapacityOverride = configuration.largeScreenWindowCapacity
+        windowArranger.smartFitCapacityProfile = configuration.smartFitCapacityProfile
+        windowArranger.smartFitOverflowStrategy = configuration.smartFitOverflowStrategy
+        windowArranger.smartFitOverlapTolerance = configuration.smartFitOverlapTolerance
         windowArranger.onSmartFitReport = { [weak self] report in
             self?.handleSmartFitReport(report)
         }
@@ -63,7 +66,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             return
         }
         syncSettingsWindow()
-        registerHotkey()
         startTrackpadGestureDetector()
         configureSecondMissionControlSwipeMonitor()
         updateMissionControlGestureProbeEnabledState()
@@ -73,11 +75,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     func applicationWillTerminate(_ notification: Notification) {
         Logger.info("MissionSwipe terminating")
-        hotkeyManager.unregister()
         trackpadGestureDetector.stop()
         gestureHUD.hide()
         layoutPreviewHUD.hide()
         settingsWindowController?.close()
+        smartFitCapacityWindowController?.close()
+        smartFitAdvancedWindowController?.close()
         pendingLayoutPreviewWorkItem?.cancel()
         previewLayoutGestureCandidate = nil
         lastPreviewLayoutHUDUpdateAt = nil
@@ -163,10 +166,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             self?.windowArranger.isSmartFitEnabled = isEnabled
             self?.syncSettingsWindow()
         }
-        controller.onChangeLargeScreenCapacity = { [weak self] capacity in
-            self?.configuration.largeScreenWindowCapacity = capacity
-            self?.windowArranger.largeScreenWindowCapacityOverride = self?.configuration.largeScreenWindowCapacity ?? 9
-            self?.syncSettingsWindow()
+        controller.onOpenSmartFitCapacities = { [weak self] in
+            self?.openSmartFitCapacities()
+        }
+        controller.onOpenSmartFitAdvanced = { [weak self] in
+            self?.openSmartFitAdvanced()
         }
         controller.onToggleDebugLogging = { [weak self] isEnabled in
             self?.configuration.enableDebugLogging = isEnabled
@@ -213,39 +217,106 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         layoutPreviewHUD.updateLanguage(configuration.language)
         settingsWindowController?.update(
             configuration: configuration,
-            isAccessibilityTrusted: permissionManager.isAccessibilityTrusted,
-            hasLargeScreenAttached: windowArranger.hasLargeScreenAttached()
+            isAccessibilityTrusted: permissionManager.isAccessibilityTrusted
+        )
+        smartFitCapacityWindowController?.update(
+            profile: configuration.smartFitCapacityProfile,
+            language: configuration.language
+        )
+        smartFitAdvancedWindowController?.update(
+            strategy: configuration.smartFitOverflowStrategy,
+            tolerance: configuration.smartFitOverlapTolerance,
+            language: configuration.language
         )
     }
 
+    private func openSmartFitAdvanced() {
+        let controller: SmartFitAdvancedWindowController
+        if let existing = smartFitAdvancedWindowController {
+            controller = existing
+        } else {
+            controller = SmartFitAdvancedWindowController(
+                strategy: configuration.smartFitOverflowStrategy,
+                tolerance: configuration.smartFitOverlapTolerance,
+                language: configuration.language
+            )
+            smartFitAdvancedWindowController = controller
+            controller.onStrategyChanged = { [weak self] strategy in
+                guard let self else { return }
+                self.configuration.smartFitOverflowStrategy = strategy
+                self.windowArranger.smartFitOverflowStrategy = strategy
+            }
+            controller.onToleranceChanged = { [weak self] tolerance in
+                guard let self else { return }
+                self.configuration.smartFitOverlapTolerance = tolerance
+                self.windowArranger.smartFitOverlapTolerance = tolerance
+            }
+        }
+        controller.update(
+            strategy: configuration.smartFitOverflowStrategy,
+            tolerance: configuration.smartFitOverlapTolerance,
+            language: configuration.language
+        )
+        controller.show()
+    }
+
+    private func openSmartFitCapacities() {
+        let controller: SmartFitCapacityWindowController
+        if let existing = smartFitCapacityWindowController {
+            controller = existing
+        } else {
+            controller = SmartFitCapacityWindowController(
+                profile: configuration.smartFitCapacityProfile,
+                language: configuration.language
+            )
+            smartFitCapacityWindowController = controller
+            controller.onProfileChanged = { [weak self] profile in
+                guard let self else { return }
+                self.configuration.smartFitCapacityProfile = profile
+                self.windowArranger.smartFitCapacityProfile = profile
+            }
+            controller.onResetToDefaults = { [weak self] in
+                self?.configuration.smartFitCapacityProfile = .default
+                self?.windowArranger.smartFitCapacityProfile = .default
+            }
+        }
+        controller.update(
+            profile: configuration.smartFitCapacityProfile,
+            language: configuration.language
+        )
+        controller.show()
+    }
+
     private func handleSmartFitReport(_ report: WindowArranger.SmartFitReport) {
-        let totalTouched = report.arrangedCount + report.minimizedCount
+        let totalTouched = report.arrangedCount + report.minimizedCount + report.stackedCount
         guard totalTouched > 0 else {
             return
         }
 
-        if report.minimizedCount > 0 {
-            let message: String
-            if configuration.language == .simplifiedChinese {
-                message = "已收纳 \(report.minimizedCount) 个窗口"
-            } else {
-                message = "Minimized \(report.minimizedCount)"
-            }
+        let zh = configuration.language == .simplifiedChinese
+
+        if report.stackedCount > 0 {
+            let message = zh
+                ? "已堆叠 \(report.stackedCount) 个窗口"
+                : "Stacked \(report.stackedCount)"
             gestureHUD.show(message: message, progress: 1, kind: .success, duration: 1.4)
-        } else if report.adapted {
-            let message = configuration.language == .simplifiedChinese
+            return
+        }
+
+        if report.minimizedCount > 0 {
+            let message = zh
+                ? "已收纳 \(report.minimizedCount) 个窗口"
+                : "Minimized \(report.minimizedCount)"
+            gestureHUD.show(message: message, progress: 1, kind: .success, duration: 1.4)
+            return
+        }
+
+        if report.adapted {
+            let message = zh
                 ? "已自动适配 \(report.stubbornCount) 个固执窗口"
                 : "Adapted around \(report.stubbornCount) stubborn"
             gestureHUD.show(message: message, progress: 1, kind: .success, duration: 1.2)
         }
-    }
-
-    private func registerHotkey() {
-        hotkeyManager.register(controlOptionWHandler: { [weak self] in
-            DispatchQueue.main.async {
-                self?.closeMissionControlWindowUnderMouse(trigger: "Control+Option+W")
-            }
-        })
     }
 
     private func closeMissionControlWindowUnderMouse(trigger: String) {

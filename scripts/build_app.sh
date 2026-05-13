@@ -10,6 +10,18 @@ MIN_MACOS="${MISSION_SWIPE_MIN_MACOS:-13.0}"
 BUILD_UNIVERSAL="${BUILD_UNIVERSAL:-1}"
 SIGNING_IDENTITY="${MISSION_SWIPE_CODESIGN_IDENTITY:-}"
 
+# Local single-arch builds default to "dev mode": debug logging on by default and
+# any other future dev-only defaults. Universal release builds stay off unless
+# MISSION_SWIPE_DEV_BUILD=1 is explicitly set.
+DEV_BUILD="${MISSION_SWIPE_DEV_BUILD:-}"
+if [[ -z "$DEV_BUILD" ]]; then
+  if [[ "$BUILD_UNIVERSAL" == "0" ]]; then
+    DEV_BUILD="1"
+  else
+    DEV_BUILD="0"
+  fi
+fi
+
 DIST_DIR="$ROOT_DIR/dist"
 BUILD_DIR="$ROOT_DIR/build/release"
 APP_DIR="$DIST_DIR/$APP_NAME.app"
@@ -32,11 +44,18 @@ mkdir -p "$MACOS_DIR" "$RESOURCES_DIR" "$BUILD_DIR"
 SOURCES=("$ROOT_DIR"/MissionSwipe/*.swift)
 BUILT_BINARIES=()
 
+SWIFT_FLAGS=()
+if [[ "$DEV_BUILD" == "1" ]]; then
+  SWIFT_FLAGS+=("-D" "MISSION_SWIPE_DEV_BUILD")
+  echo "Building dev mode (debug logging default ON)"
+fi
+
 for ARCH in "${ARCHES[@]}"; do
   OUTPUT="$BUILD_DIR/$APP_NAME-$ARCH"
   swiftc \
     -O \
     -whole-module-optimization \
+    ${SWIFT_FLAGS[@]+"${SWIFT_FLAGS[@]}"} \
     -target "$ARCH-apple-macosx$MIN_MACOS" \
     -sdk "$SDK_PATH" \
     "${SOURCES[@]}" \

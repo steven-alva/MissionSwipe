@@ -62,7 +62,7 @@ final class StatusBarController: NSObject {
         menu.addItem(permissionStatusItem)
         menu.addItem(.separator())
 
-        menu.addItem(menuItem(text(en: "Close Mission Control Window", zh: "关闭调度中心窗口"), action: #selector(closeWindow), keyEquivalent: "w", modifiers: [.control, .option]))
+        menu.addItem(menuItem(text(en: "Close Mission Control Window", zh: "关闭调度中心窗口"), action: #selector(closeWindow)))
         menu.addItem(menuItem(text(en: "Arrange Visible Windows", zh: "整理可见窗口"), action: #selector(arrangeVisibleWindows)))
         menu.addItem(menuItem(text(en: "Undo Last Arrange", zh: "撤销上次整理"), action: #selector(undoLastArrange)))
         menu.addItem(.separator())

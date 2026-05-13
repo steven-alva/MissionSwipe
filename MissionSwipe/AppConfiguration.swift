@@ -1,5 +1,52 @@
 import Foundation
 
+enum SmartFitOverflowStrategy: String, CaseIterable {
+    case minimize             // Default: minimize windows that don't fit cleanly
+    case tolerateOverlap      // Keep all windows visible, accept some overlap
+    case stackWithPeek        // Cascade all windows with peek edges as a fallback
+
+    var displayLabel: (en: String, zh: String) {
+        switch self {
+        case .minimize:
+            return ("Minimize overflow (default)", "最小化收纳(默认)")
+        case .tolerateOverlap:
+            return ("Tolerate light overlap", "允许轻度重叠(全部保留可见)")
+        case .stackWithPeek:
+            return ("Stack with peek edges", "堆叠 + 露边(错位叠放)")
+        }
+    }
+
+    var detailText: (en: String, zh: String) {
+        switch self {
+        case .minimize:
+            return (
+                "When windows refuse to shrink and overlap, minimize the least-recently-used ones.",
+                "窗口拒绝缩小并产生重叠时,把最久未用的几个最小化收纳。"
+            )
+        case .tolerateOverlap:
+            return (
+                "Keep every window on screen, even if some bleed into each other. Tune the tolerance below.",
+                "每个窗口都留在屏幕上,允许它们轻微互相挤一下。用下面的容忍度调节。"
+            )
+        case .stackWithPeek:
+            return (
+                "Only kicks in when windows don't all fit tiled. Cascades them by size: big at the back, small on top, edges peek out.",
+                "仅当窗口铺不下时触发。按大小错位叠放:大的在底层,小的在最上层,边缘露出便于点击切换。"
+            )
+        }
+    }
+}
+
+struct SmartFitCapacityProfile: Equatable {
+    var compact: Int   // ≤15"
+    var laptop: Int    // 16"-20" (covers 16-17" laptops + the 18-20 gap)
+    var desktop: Int   // 21"-24"
+    var large: Int     // 25"-29" (~27")
+    var huge: Int      // >29" (32"+ / ultrawide)
+
+    static let `default` = SmartFitCapacityProfile(compact: 5, laptop: 6, desktop: 6, large: 9, huge: 9)
+}
+
 enum AppLanguage: String, CaseIterable {
     case english = "en"
     case simplifiedChinese = "zh-Hans"
@@ -30,6 +77,13 @@ final class AppConfiguration {
     private let previewLayoutGesturesKey = "EnablePreviewLayoutGestures"
     private let smartFitArrangeKey = "EnableSmartFitArrange"
     private let largeScreenWindowCapacityKey = "LargeScreenWindowCapacity"
+    private let smartFitCapacityCompactKey = "SmartFitCapacityCompact"
+    private let smartFitCapacityLaptopKey = "SmartFitCapacityLaptop"
+    private let smartFitCapacityDesktopKey = "SmartFitCapacityDesktop"
+    private let smartFitCapacityLargeKey = "SmartFitCapacityLarge"
+    private let smartFitCapacityHugeKey = "SmartFitCapacityHuge"
+    private let smartFitOverflowStrategyKey = "SmartFitOverflowStrategy"
+    private let smartFitOverlapToleranceKey = "SmartFitOverlapTolerance"
     private let secondMissionControlSwipeUpToArrangeKey = "EnableSecondMissionControlSwipeUpToArrange"
     private let missionControlGestureProbeKey = "EnableMissionControlGestureProbe"
     private let inputEventProbeKey = "EnableInputEventProbe"
@@ -133,19 +187,80 @@ final class AppConfiguration {
         }
     }
 
-    var largeScreenWindowCapacity: Int {
+    var smartFitCapacityProfile: SmartFitCapacityProfile {
         get {
-            if defaults.object(forKey: largeScreenWindowCapacityKey) == nil {
-                return 9
-            }
-            let value = defaults.integer(forKey: largeScreenWindowCapacityKey)
-            return min(max(value, 1), 30)
+            let defaultProfile = SmartFitCapacityProfile.default
+            // Migrate the legacy LargeScreenWindowCapacity key into the new huge slot,
+            // so anyone who tweaked the old field doesn't lose their preference.
+            let legacyHuge: Int? = (defaults.object(forKey: largeScreenWindowCapacityKey) as? NSNumber).map { $0.intValue }
+
+            let compact = readCapacity(forKey: smartFitCapacityCompactKey, default: defaultProfile.compact)
+            let laptop = readCapacity(forKey: smartFitCapacityLaptopKey, default: defaultProfile.laptop)
+            let desktop = readCapacity(forKey: smartFitCapacityDesktopKey, default: defaultProfile.desktop)
+            let large = readCapacity(forKey: smartFitCapacityLargeKey, default: defaultProfile.large)
+            let huge = readCapacity(
+                forKey: smartFitCapacityHugeKey,
+                default: legacyHuge.map { min(max($0, 1), 30) } ?? defaultProfile.huge
+            )
+
+            return SmartFitCapacityProfile(
+                compact: compact,
+                laptop: laptop,
+                desktop: desktop,
+                large: large,
+                huge: huge
+            )
         }
         set {
-            let clamped = min(max(newValue, 1), 30)
-            defaults.set(clamped, forKey: largeScreenWindowCapacityKey)
-            Logger.info("LargeScreenWindowCapacity set to \(clamped)")
+            writeCapacity(newValue.compact, forKey: smartFitCapacityCompactKey)
+            writeCapacity(newValue.laptop, forKey: smartFitCapacityLaptopKey)
+            writeCapacity(newValue.desktop, forKey: smartFitCapacityDesktopKey)
+            writeCapacity(newValue.large, forKey: smartFitCapacityLargeKey)
+            writeCapacity(newValue.huge, forKey: smartFitCapacityHugeKey)
+            Logger.info("SmartFitCapacityProfile set: compact=\(newValue.compact), laptop=\(newValue.laptop), desktop=\(newValue.desktop), large=\(newValue.large), huge=\(newValue.huge)")
         }
+    }
+
+    var smartFitOverflowStrategy: SmartFitOverflowStrategy {
+        get {
+            guard let raw = defaults.string(forKey: smartFitOverflowStrategyKey),
+                  let strategy = SmartFitOverflowStrategy(rawValue: raw) else {
+                return .minimize
+            }
+            return strategy
+        }
+        set {
+            defaults.set(newValue.rawValue, forKey: smartFitOverflowStrategyKey)
+            Logger.info("SmartFitOverflowStrategy set to \(newValue.rawValue)")
+        }
+    }
+
+    var smartFitOverlapTolerance: Double {
+        get {
+            if defaults.object(forKey: smartFitOverlapToleranceKey) == nil {
+                return 0.06
+            }
+            let value = defaults.double(forKey: smartFitOverlapToleranceKey)
+            return min(max(value, 0.06), 0.50)
+        }
+        set {
+            let clamped = min(max(newValue, 0.06), 0.50)
+            defaults.set(clamped, forKey: smartFitOverlapToleranceKey)
+            Logger.info("SmartFitOverlapTolerance set to \(clamped)")
+        }
+    }
+
+    private func readCapacity(forKey key: String, default fallback: Int) -> Int {
+        guard defaults.object(forKey: key) != nil else {
+            return fallback
+        }
+        let value = defaults.integer(forKey: key)
+        return min(max(value, 1), 30)
+    }
+
+    private func writeCapacity(_ value: Int, forKey key: String) {
+        let clamped = min(max(value, 1), 30)
+        defaults.set(clamped, forKey: key)
     }
 
     var enableSecondMissionControlSwipeUpToArrange: Bool {
@@ -191,12 +306,31 @@ final class AppConfiguration {
 
     var enableDebugLogging: Bool {
         get {
-            defaults.bool(forKey: debugLoggingKey)
+            if defaults.object(forKey: debugLoggingKey) == nil {
+                return Self.debugLoggingDefault
+            }
+            return defaults.bool(forKey: debugLoggingKey)
         }
         set {
             defaults.set(newValue, forKey: debugLoggingKey)
             Logger.info("EnableDebugLogging set to \(newValue)")
         }
+    }
+
+    static var debugLoggingDefault: Bool {
+        #if MISSION_SWIPE_DEV_BUILD
+        return true
+        #else
+        return false
+        #endif
+    }
+
+    static var isDevBuild: Bool {
+        #if MISSION_SWIPE_DEV_BUILD
+        return true
+        #else
+        return false
+        #endif
     }
 
     var hideStatusBarIcon: Bool {
