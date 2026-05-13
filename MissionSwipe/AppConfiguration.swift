@@ -28,6 +28,8 @@ final class AppConfiguration {
     private let swipeDownToMinimizeKey = "EnableSwipeDownToMinimize"
     private let blankAreaSwipeUpToArrangeKey = "EnableBlankAreaSwipeUpToArrange"
     private let previewLayoutGesturesKey = "EnablePreviewLayoutGestures"
+    private let smartFitArrangeKey = "EnableSmartFitArrange"
+    private let largeScreenWindowCapacityKey = "LargeScreenWindowCapacity"
     private let secondMissionControlSwipeUpToArrangeKey = "EnableSecondMissionControlSwipeUpToArrange"
     private let missionControlGestureProbeKey = "EnableMissionControlGestureProbe"
     private let inputEventProbeKey = "EnableInputEventProbe"
@@ -115,6 +117,34 @@ final class AppConfiguration {
         set {
             defaults.set(newValue, forKey: previewLayoutGesturesKey)
             Logger.info("EnablePreviewLayoutGestures set to \(newValue)")
+        }
+    }
+
+    var enableSmartFitArrange: Bool {
+        get {
+            if defaults.object(forKey: smartFitArrangeKey) == nil {
+                return true
+            }
+            return defaults.bool(forKey: smartFitArrangeKey)
+        }
+        set {
+            defaults.set(newValue, forKey: smartFitArrangeKey)
+            Logger.info("EnableSmartFitArrange set to \(newValue)")
+        }
+    }
+
+    var largeScreenWindowCapacity: Int {
+        get {
+            if defaults.object(forKey: largeScreenWindowCapacityKey) == nil {
+                return 9
+            }
+            let value = defaults.integer(forKey: largeScreenWindowCapacityKey)
+            return min(max(value, 1), 30)
+        }
+        set {
+            let clamped = min(max(newValue, 1), 30)
+            defaults.set(clamped, forKey: largeScreenWindowCapacityKey)
+            Logger.info("LargeScreenWindowCapacity set to \(clamped)")
         }
     }
 

@@ -45,6 +45,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         Logger.info("MissionSwipe launching")
         NSApp.setActivationPolicy(.accessory)
 
+        windowArranger.isSmartFitEnabled = configuration.enableSmartFitArrange
+        windowArranger.largeScreenWindowCapacityOverride = configuration.largeScreenWindowCapacity
+        windowArranger.onSmartFitReport = { [weak self] report in
+            self?.handleSmartFitReport(report)
+        }
+
         if configuration.hideStatusBarIcon {
             Logger.info("Menu bar icon is hidden by user preference")
         } else {
@@ -152,6 +158,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             }
             self?.syncSettingsWindow()
         }
+        controller.onToggleSmartFitArrange = { [weak self] isEnabled in
+            self?.configuration.enableSmartFitArrange = isEnabled
+            self?.windowArranger.isSmartFitEnabled = isEnabled
+            self?.syncSettingsWindow()
+        }
+        controller.onChangeLargeScreenCapacity = { [weak self] capacity in
+            self?.configuration.largeScreenWindowCapacity = capacity
+            self?.windowArranger.largeScreenWindowCapacityOverride = self?.configuration.largeScreenWindowCapacity ?? 9
+            self?.syncSettingsWindow()
+        }
         controller.onToggleDebugLogging = { [weak self] isEnabled in
             self?.configuration.enableDebugLogging = isEnabled
             self?.syncSettingsWindow()
@@ -197,8 +213,31 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         layoutPreviewHUD.updateLanguage(configuration.language)
         settingsWindowController?.update(
             configuration: configuration,
-            isAccessibilityTrusted: permissionManager.isAccessibilityTrusted
+            isAccessibilityTrusted: permissionManager.isAccessibilityTrusted,
+            hasLargeScreenAttached: windowArranger.hasLargeScreenAttached()
         )
+    }
+
+    private func handleSmartFitReport(_ report: WindowArranger.SmartFitReport) {
+        let totalTouched = report.arrangedCount + report.minimizedCount
+        guard totalTouched > 0 else {
+            return
+        }
+
+        if report.minimizedCount > 0 {
+            let message: String
+            if configuration.language == .simplifiedChinese {
+                message = "已收纳 \(report.minimizedCount) 个窗口"
+            } else {
+                message = "Minimized \(report.minimizedCount)"
+            }
+            gestureHUD.show(message: message, progress: 1, kind: .success, duration: 1.4)
+        } else if report.adapted {
+            let message = configuration.language == .simplifiedChinese
+                ? "已自动适配 \(report.stubbornCount) 个固执窗口"
+                : "Adapted around \(report.stubbornCount) stubborn"
+            gestureHUD.show(message: message, progress: 1, kind: .success, duration: 1.2)
+        }
     }
 
     private func registerHotkey() {

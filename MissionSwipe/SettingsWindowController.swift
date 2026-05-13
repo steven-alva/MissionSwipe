@@ -7,6 +7,8 @@ final class SettingsWindowController: NSWindowController {
     var onToggleSwipeDownToMinimize: ((Bool) -> Void)?
     var onToggleBlankAreaSwipeUpToArrange: ((Bool) -> Void)?
     var onTogglePreviewLayoutGestures: ((Bool) -> Void)?
+    var onToggleSmartFitArrange: ((Bool) -> Void)?
+    var onChangeLargeScreenCapacity: ((Int) -> Void)?
     var onToggleDebugLogging: ((Bool) -> Void)?
     var onToggleMissionControlGestureProbe: ((Bool) -> Void)?
     var onToggleInputEventProbe: ((Bool) -> Void)?
@@ -25,6 +27,7 @@ final class SettingsWindowController: NSWindowController {
         case swipeDownToMinimize
         case blankAreaSwipeUpToArrange
         case previewLayoutGestures
+        case smartFitArrange
         case debugLogging
         case missionControlGestureProbe
         case inputEventProbe
@@ -33,7 +36,11 @@ final class SettingsWindowController: NSWindowController {
     private let permissionLabel = NSTextField(labelWithString: "")
     private var toggles: [Toggle: NSButton] = [:]
     private var languagePopup: NSPopUpButton?
+    private var largeScreenCapacityField: NSTextField?
+    private var largeScreenCapacityRow: NSView?
     private var currentLanguage: AppLanguage
+    private var hasLargeScreenAttached: Bool = false
+    private var pendingLargeScreenCapacity: Int = 9
 
     init(language: AppLanguage = AppConfiguration.shared.language) {
         currentLanguage = language
@@ -60,8 +67,13 @@ final class SettingsWindowController: NSWindowController {
         window?.makeKeyAndOrderFront(nil)
     }
 
-    func update(configuration: AppConfiguration, isAccessibilityTrusted: Bool) {
-        if currentLanguage != configuration.language {
+    func update(configuration: AppConfiguration, isAccessibilityTrusted: Bool, hasLargeScreenAttached: Bool) {
+        let languageChanged = currentLanguage != configuration.language
+        let largeScreenChanged = self.hasLargeScreenAttached != hasLargeScreenAttached
+        self.hasLargeScreenAttached = hasLargeScreenAttached
+        self.pendingLargeScreenCapacity = configuration.largeScreenWindowCapacity
+
+        if languageChanged || largeScreenChanged {
             currentLanguage = configuration.language
             buildContent()
         }
@@ -71,10 +83,12 @@ final class SettingsWindowController: NSWindowController {
         set(.swipeDownToMinimize, configuration.enableSwipeDownToMinimize)
         set(.blankAreaSwipeUpToArrange, configuration.enableBlankAreaSwipeUpToArrange)
         set(.previewLayoutGestures, configuration.enablePreviewLayoutGestures)
+        set(.smartFitArrange, configuration.enableSmartFitArrange)
         set(.debugLogging, configuration.enableDebugLogging)
         set(.missionControlGestureProbe, configuration.enableMissionControlGestureProbe)
         set(.inputEventProbe, configuration.enableInputEventProbe)
 
+        largeScreenCapacityField?.stringValue = String(configuration.largeScreenWindowCapacity)
         languagePopup?.selectItem(withTitle: currentLanguage.displayName)
         permissionLabel.stringValue = isAccessibilityTrusted
             ? text(en: "Accessibility: Granted", zh: "辅助功能权限：已授权")
@@ -125,15 +139,35 @@ final class SettingsWindowController: NSWindowController {
             ]
         ))
 
+        var layoutViews: [NSView] = [
+            toggle(
+                text(en: "Smart Fit arrange", zh: "Smart Fit 整理"),
+                detail: text(
+                    en: "Fit as many windows as your screen can clearly show. Minimize the rest. Adapts when an app refuses to shrink.",
+                    zh: "按屏幕容量铺满清晰可见的窗口，其余自动最小化收纳；遇到不肯缩小的应用会自动适配。"
+                ),
+                key: .smartFitArrange
+            ),
+            toggle(
+                text(en: "Layout Dashboard", zh: "排版 Dashboard"),
+                detail: text(
+                    en: "Preview and confirm directional layouts before they apply.",
+                    zh: "在应用方向排版前预览并确认布局。"
+                ),
+                key: .previewLayoutGestures
+            )
+        ]
+
+        layoutViews.append(buildLargeScreenCapacityRow())
+
+        layoutViews.append(buttonRow([
+            actionButton(text(en: "Arrange Now", zh: "立即整理"), action: #selector(arrangeVisibleWindows)),
+            actionButton(text(en: "Undo Arrange", zh: "撤销整理"), action: #selector(undoLastArrange))
+        ]))
+
         stack.addArrangedSubview(section(
             title: text(en: "Layout", zh: "排版"),
-            views: [
-                toggle(text(en: "Layout Dashboard", zh: "排版 Dashboard"), detail: text(en: "Preview and confirm directional layouts before they apply.", zh: "在应用方向排版前预览并确认布局。"), key: .previewLayoutGestures),
-                buttonRow([
-                    actionButton(text(en: "Arrange Now", zh: "立即整理"), action: #selector(arrangeVisibleWindows)),
-                    actionButton(text(en: "Undo Arrange", zh: "撤销整理"), action: #selector(undoLastArrange))
-                ])
-            ]
+            views: layoutViews
         ))
 
         stack.addArrangedSubview(section(
@@ -183,6 +217,51 @@ final class SettingsWindowController: NSWindowController {
 
         container.widthAnchor.constraint(equalToConstant: 412).isActive = true
         return container
+    }
+
+    private func buildLargeScreenCapacityRow() -> NSView {
+        let row = NSStackView()
+        row.orientation = .horizontal
+        row.alignment = .centerY
+        row.spacing = 10
+
+        let label = NSTextField(labelWithString: text(en: "Large screen capacity", zh: "大屏容量"))
+        label.font = .systemFont(ofSize: 12, weight: .medium)
+        label.textColor = .secondaryLabelColor
+        label.widthAnchor.constraint(equalToConstant: 140).isActive = true
+        row.addArrangedSubview(label)
+
+        let field = NSTextField()
+        field.stringValue = String(pendingLargeScreenCapacity)
+        field.alignment = .center
+        field.font = .systemFont(ofSize: 13)
+        field.widthAnchor.constraint(equalToConstant: 60).isActive = true
+        field.target = self
+        field.action = #selector(largeScreenCapacityCommitted(_:))
+        field.delegate = nil
+        if let formatter = field.formatter as? NumberFormatter {
+            formatter.minimum = 1
+            formatter.maximum = 30
+            formatter.allowsFloats = false
+        } else {
+            let formatter = NumberFormatter()
+            formatter.minimum = 1
+            formatter.maximum = 30
+            formatter.allowsFloats = false
+            field.formatter = formatter
+        }
+        largeScreenCapacityField = field
+        row.addArrangedSubview(field)
+
+        let hint = NSTextField(labelWithString: text(en: "Used only on displays larger than 27\". Default 9.", zh: "仅在 27\" 以上的显示器使用，默认 9。"))
+        hint.font = .systemFont(ofSize: 11)
+        hint.textColor = .secondaryLabelColor
+        hint.maximumNumberOfLines = 2
+        hint.preferredMaxLayoutWidth = 200
+        row.addArrangedSubview(hint)
+
+        largeScreenCapacityRow = row
+        return row
     }
 
     private func languageRow() -> NSView {
@@ -279,6 +358,8 @@ final class SettingsWindowController: NSWindowController {
             onToggleBlankAreaSwipeUpToArrange?(isEnabled)
         case .previewLayoutGestures:
             onTogglePreviewLayoutGestures?(isEnabled)
+        case .smartFitArrange:
+            onToggleSmartFitArrange?(isEnabled)
         case .debugLogging:
             onToggleDebugLogging?(isEnabled)
         case .missionControlGestureProbe:
@@ -286,6 +367,13 @@ final class SettingsWindowController: NSWindowController {
         case .inputEventProbe:
             onToggleInputEventProbe?(isEnabled)
         }
+    }
+
+    @objc private func largeScreenCapacityCommitted(_ sender: NSTextField) {
+        let raw = sender.integerValue
+        let clamped = min(max(raw, 1), 30)
+        sender.stringValue = String(clamped)
+        onChangeLargeScreenCapacity?(clamped)
     }
 
     @objc private func arrangeVisibleWindows() {

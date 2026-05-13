@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+- Added Smart Fit arrange: a screen-size-aware tiling pass that caps the number of arranged windows based on display size, picks the most recently used windows, and minimizes the rest.
+- Added an adaptive second pass that re-tiles around windows that refuse to shrink, so stubborn apps no longer break the layout.
+- Added a large-screen capacity setting (only shown when a display larger than 27" is attached) with a default of 9.
+- Added a brief HUD confirmation after Smart Fit collapses or adapts windows; the action is still reversible from `Undo Last Arrange`.
+- `Undo Last Arrange` now restores windows that Smart Fit minimized in addition to restoring their previous frames.
+
 ## 0.6.7
 
 - Added a Settings window from the menu bar with core gesture, layout, diagnostics, system, and language controls.
