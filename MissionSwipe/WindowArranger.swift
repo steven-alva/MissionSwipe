@@ -49,6 +49,13 @@ final class WindowArranger {
         static let stackPeekOffsetY: CGFloat = 48
         static let stackPeekMinUsableWidth: CGFloat = 360
         static let stackPeekMinUsableHeight: CGFloat = 260
+        // When packing a non-stubborn (flexible) window into the adaptive second pass,
+        // pretend it is no wider/taller than this. Each cell will get stretched up to
+        // fill the row/column afterwards, so these numbers only decide row breaks.
+        // Using a small flexible footprint keeps multiple flexible windows in the
+        // same row instead of pretending they each need their original tile size.
+        static let flexibleMinPackWidth: CGFloat = 480
+        static let flexibleMinPackHeight: CGFloat = 320
     }
 
     private struct ArrangeableWindow {
@@ -885,8 +892,22 @@ final class WindowArranger {
 
         var effective = applied.map { frame -> EffectiveWindow in
             let stubborn = isStubborn(frame)
-            let actualSize = frame.actual?.size ?? frame.target.size
-            let size = stubborn ? actualSize : frame.target.size
+            let size: CGSize
+            if stubborn {
+                // Stubborn windows are pinned to their actual size — that's what makes
+                // them stubborn. The pack respects that as a hard constraint.
+                size = frame.actual?.size ?? frame.target.size
+            } else {
+                // Flexible windows can be packed smaller than their target size; their
+                // final cell width/height will be stretched up to fill the row anyway.
+                // Use a small "flex pack" footprint so a normal 890x555 tile target
+                // doesn't make us think the window needs its own row next to a stubborn
+                // neighbour.
+                size = CGSize(
+                    width: min(frame.target.width, Constants.flexibleMinPackWidth),
+                    height: min(frame.target.height, Constants.flexibleMinPackHeight)
+                )
+            }
             let clampedSize = CGSize(
                 width: min(bounds.width, max(160, size.width)),
                 height: min(bounds.height, max(120, size.height))

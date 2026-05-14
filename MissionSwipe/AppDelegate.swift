@@ -911,12 +911,20 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private func copyLastCloseReport() {
         guard let report = windowCloser.lastActionReport else {
             Logger.info("No Mission Control action report is available yet")
+            let message = configuration.language == .simplifiedChinese
+                ? "暂无报告 — 先做一次关窗或最小化"
+                : "No recent report — close or minimize a window first"
+            gestureHUD.show(message: message, progress: 0, kind: .warning, duration: 1.6)
             return
         }
 
         NSPasteboard.general.clearContents()
         NSPasteboard.general.setString(report, forType: .string)
         Logger.info("Copied last Mission Control action report to clipboard")
+        let message = configuration.language == .simplifiedChinese
+            ? "报告已复制"
+            : "Report copied"
+        gestureHUD.show(message: message, progress: 1, kind: .success, duration: 1.2)
     }
 
     private func hideMenuBarIcon() {
