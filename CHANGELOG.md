@@ -2,11 +2,22 @@
 
 ## Unreleased
 
-- Added Smart Fit arrange: a screen-size-aware tiling pass that caps the number of arranged windows based on display size, picks the most recently used windows, and minimizes the rest.
-- Added an adaptive second pass that re-tiles around windows that refuse to shrink, so stubborn apps no longer break the layout.
-- Added a large-screen capacity setting (only shown when a display larger than 27" is attached) with a default of 9.
-- Added a brief HUD confirmation after Smart Fit collapses or adapts windows; the action is still reversible from `Undo Last Arrange`.
+## 0.7.0
+
+- Added Smart Fit arrange: a screen-size-aware tiling pass that caps the number of arranged windows based on display physical size, picks the most-recently-used windows, and decides what to do with the rest according to a user-configurable overflow strategy.
+- Added an adaptive second pass that re-tiles around windows refusing to shrink, so stubborn apps no longer break the layout.
+- Added a per-screen-size capacity profile editable from `Settings → Smart Fit → Customize capacities…` (defaults: 5 / 6 / 6 / 9 / 9 across ≤15", 16-17", 21-24", 27", 30"+).
+- Added `Settings → Smart Fit → Advanced…` for picking the overflow strategy and tuning overlap tolerance:
+  - **Minimize overflow** (default): minimize the least-recently-used windows that no longer fit cleanly.
+  - **Tolerate light overlap**: keep every window on screen, accept some bleed.
+  - **Stack with peek edges**: when tile produces overlap, cascade all windows by size — biggest at the back, smallest on top — with peek strips on the top-left of each layer.
+- Added an overlap tolerance slider (6%-50%) so Smart Fit only triggers its overflow strategy when overlap is actually meaningful.
+- Added a brief HUD confirmation after Smart Fit collapses, adapts, or stacks windows. The action is reversible from `Undo Last Arrange`.
 - `Undo Last Arrange` now restores windows that Smart Fit minimized in addition to restoring their previous frames.
+- Tile gap reduced from 10 pt to 4 pt for denser arrangements.
+- Cross-display arrange writes now follow position → size → position with small settle delays so windows arrive at the correct size on their destination display.
+- Removed the `Control + Option + W` global hotkey and `GlobalHotkeyManager`. MissionSwipe is gesture-first now; the menu entry still triggers the same close action without a key equivalent.
+- Build script learns a dev-mode flag: local single-arch builds (`BUILD_UNIVERSAL=0`) default debug logging on. Universal release builds stay quiet.
 
 ## 0.6.7
 
