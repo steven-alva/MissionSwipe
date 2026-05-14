@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+## 0.7.6
+
+- **Resolution-independent arrange.** Smart Fit now uses each screen's *physical* width (in inches), not its pixel width, to decide whether a layout will fit. The minimum acceptable cell width is 4.5 inches (target 5.0 inches), tuned so Chrome and similarly-sized apps consistently accept it. Practically this means a 14" laptop produces the same arrange outcome whether it's set to "Default" or "More Space" scaling — same number of visible windows, same layout pattern, just at different pixel counts.
+- **Smart Fit minimizes the right number of windows automatically.** When the chosen layout would produce cells narrower than the physical minimum, Smart Fit reduces window count one at a time (least-recently-used first) until cells fit. No new layouts are introduced — the algorithm simply hands off to the layout for one fewer window. HUD continues to surface the count via "已收纳 X 个窗口" / "Minimized X".
+- **Fixed: primary-placement swipe being overridden by adaptive layout.** When the user right- or left-swiped to make a window the primary (filling half the screen), the adaptive second pass could rearrange every window — including the primary — into a generic grid, ignoring the user's intent. The primary-placement path now skips the adaptive second pass entirely, preserving the chosen primary even if some secondaries refuse their cell sizes.
+
 ## 0.7.5
 
 - Cleaned up `Settings → Diagnostics` from a wall of three toggles + four buttons to just two items: `Debug logging` and a `Diagnostics panel…` button.

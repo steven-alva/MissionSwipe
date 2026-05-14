@@ -56,6 +56,12 @@ final class WindowArranger {
         // same row instead of pretending they each need their original tile size.
         static let flexibleMinPackWidth: CGFloat = 480
         static let flexibleMinPackHeight: CGFloat = 320
+        // Physical minimum cell width: any layout that would produce cells narrower than
+        // this on the actual display triggers Smart Fit's minimize-one-window flow.
+        // Tuned to match Chrome's typical refusal threshold on macOS (~720 pt on default
+        // 14"). Tolerance band: ideal ≥ 5.0", acceptable ≥ 4.5", below that = "won't fit".
+        static let idealMinCellInches: CGFloat = 5.0
+        static let acceptableMinCellInches: CGFloat = 4.5
     }
 
     private struct ArrangeableWindow {
@@ -459,6 +465,22 @@ final class WindowArranger {
             }
         }
 
+        // Physical-size pre-check: if the user's chosen layout would produce cells
+        // physically narrower than Chrome (and similar apps) accept, minimize the
+        // least-recently-used windows until cells are wide enough. This is what makes
+        // arrange behave the same on 14" default and 14" "More Space" — both end up
+        // with the same physical cell size, just at different pixel counts.
+        let physicalFitResult = physicallyFitWindows(working, inside: bounds, screen: screen)
+        var physicalMinimizedCount = 0
+        if !physicalFitResult.minimized.isEmpty {
+            working = physicalFitResult.kept
+            for window in physicalFitResult.minimized {
+                if setMinimized(true, for: window.axWindow.element) {
+                    physicalMinimizedCount += 1
+                }
+            }
+        }
+
         var outcome: ArrangeOutcome
         switch working.count {
         case 3:
@@ -474,7 +496,7 @@ final class WindowArranger {
                 outcome = arrangeSimpleGrid(working, inside: bounds)
             }
         }
-        outcome.minimizedCount += capacityMinimizedCount
+        outcome.minimizedCount += capacityMinimizedCount + physicalMinimizedCount
         return outcome
     }
 
@@ -1113,6 +1135,19 @@ final class WindowArranger {
             return EffectiveWindow(window: frame.window, size: clampedSize, isStubborn: stubborn)
         }
 
+        // Primary-placement path: the user explicitly picked one window as primary and
+        // told the algorithm where it goes. Even if the secondaries refuse their cell
+        // sizes, we must NOT let adapt rewrite the primary out of position. Keep the
+        // first-pass placement, even with overlap.
+        if !allowMinimization {
+            Logger.info("Smart Fit: primary placement keeps first-pass even if stubborn/overlap detected (adapt skipped entirely)")
+            var outcome = ArrangeOutcome()
+            outcome.stubbornCount = stubbornFrames.count
+            outcome.adapted = false
+            outcome.arrangedCount = applied.filter(\.didMove).count
+            return outcome
+        }
+
         // First, try the adaptive packing without dropping anyone.
         if let frames = adaptiveLayout(effective, inside: bounds, gap: gap) {
             let secondPass = applyAndMeasure(frames)
@@ -1120,18 +1155,6 @@ final class WindowArranger {
             outcome.stubbornCount = stubbornFrames.count
             outcome.adapted = true
             outcome.arrangedCount = secondPass.filter(\.didMove).count
-            return outcome
-        }
-
-        // Adaptive didn't fit everyone. Apply the user's chosen overflow strategy.
-        // If we're on the primary-placement path (allowMinimization=false), the user
-        // explicitly picked the layout — never silently rewrite it. Keep first-pass.
-        if !allowMinimization {
-            Logger.info("Smart Fit adaptive layout did not fit, but keeping first-pass placement: minimization disabled for this path (primary placement)")
-            var outcome = ArrangeOutcome()
-            outcome.stubbornCount = stubbornFrames.count
-            outcome.adapted = false
-            outcome.arrangedCount = applied.filter(\.didMove).count
             return outcome
         }
 
@@ -1483,6 +1506,100 @@ final class WindowArranger {
         }
         let diagonalMM = sqrt(sizeMM.width * sizeMM.width + sizeMM.height * sizeMM.height)
         return diagonalMM / 25.4
+    }
+
+    /// Pixels per inch for the screen's logical width. Used to convert pixel cell widths
+    /// to physical inches so layout decisions don't depend on the user's chosen scaling
+    /// (default vs. "More Space").
+    private func pixelsPerInch(for screen: NSScreen?) -> CGFloat? {
+        guard let screen,
+              let screenNumber = screen.deviceDescription[NSDeviceDescriptionKey("NSScreenNumber")] as? NSNumber else {
+            return nil
+        }
+        let displayID = CGDirectDisplayID(screenNumber.uint32Value)
+        let sizeMM = CGDisplayScreenSize(displayID)
+        guard sizeMM.width > 0 else {
+            return nil
+        }
+        let widthInches = sizeMM.width / 25.4
+        return screen.frame.width / widthInches
+    }
+
+    /// Predict the narrowest cell width (in pixels) for arranging `count` windows on
+    /// `bounds`, given the user's current Smart Fit layout choices. Returns nil for
+    /// counts where we don't have a meaningful prediction (e.g. count < 3).
+    private func predictedMinCellWidth(for count: Int, inside bounds: CGRect) -> CGFloat? {
+        let gap = Constants.windowGap
+        switch count {
+        case ..<3:
+            return nil
+        case 3:
+            switch threeWindowLayout {
+            case .primaryPlusTwo:
+                return floor((bounds.width - gap) * 0.50)
+            case .threeColumns:
+                return floor((bounds.width - 2 * gap) / 3)
+            }
+        case 4:
+            switch fourWindowLayout {
+            case .grid2x2:
+                return floor((bounds.width - gap) / 2)
+            case .primaryPlusThree:
+                return floor((bounds.width - gap) * 0.50)
+            }
+        case 5:
+            switch fiveWindowLayout {
+            case .threeOverTwoEqual:
+                return floor((bounds.width - 2 * gap) / 3)  // top row 3 cells
+            case .leftTwoBigRightThreeSmall:
+                return floor((bounds.width - gap) * 0.50)
+            case .bottomTwoBigTopThreeSmall:
+                return floor((bounds.width - 2 * gap) / 3)  // top row 3 cells
+            }
+        default:
+            // 6+ windows use arrangeBalancedRows; estimate from sqrt heuristic
+            let rowCount = max(1, Int(floor(sqrt(Double(count)))))
+            let maxColsInRow = Int(ceil(Double(count) / Double(rowCount)))
+            return floor((bounds.width - CGFloat(maxColsInRow - 1) * gap) / CGFloat(maxColsInRow))
+        }
+    }
+
+    /// Determine how many windows we can actually arrange on this screen given the
+    /// user's chosen layouts. Returns the windows that fit + the windows that should
+    /// be minimized because they wouldn't.
+    private func physicallyFitWindows(
+        _ windows: [ArrangeableWindow],
+        inside bounds: CGRect,
+        screen: NSScreen?
+    ) -> (kept: [ArrangeableWindow], minimized: [ArrangeableWindow]) {
+        guard isSmartFitEnabled, windows.count >= Constants.smartFitMinWindowCount else {
+            return (windows, [])
+        }
+        guard let ppi = pixelsPerInch(for: screen), ppi > 0 else {
+            // No physical info — skip the inch-based check, fall back to existing behavior.
+            return (windows, [])
+        }
+
+        let minPixels = Constants.acceptableMinCellInches * ppi
+        var kept = windows
+        var minimized: [ArrangeableWindow] = []
+
+        while kept.count >= Constants.smartFitMinWindowCount {
+            guard let predicted = predictedMinCellWidth(for: kept.count, inside: bounds),
+                  predicted < minPixels else {
+                break  // either no prediction available or cells are wide enough
+            }
+            // Drop the least-recently-used window from the planning set and minimize it.
+            // (Highest orderIndex = furthest from frontmost.)
+            guard let lruIndex = kept.indices.max(by: { kept[$0].candidate.orderIndex < kept[$1].candidate.orderIndex }) else {
+                break
+            }
+            let dropped = kept.remove(at: lruIndex)
+            minimized.append(dropped)
+            Logger.info("Smart Fit physical-fit: predicted cell width \(Int(predicted))px < min \(Int(minPixels))px (\(String(format: "%.1f", Constants.acceptableMinCellInches)) inches). Reducing to \(kept.count) windows by minimizing \(dropped.candidate.ownerName)/\"\(dropped.axWindow.title)\".")
+        }
+
+        return (kept, minimized)
     }
 
     private func windowCapacity(for screen: NSScreen?) -> Int {
