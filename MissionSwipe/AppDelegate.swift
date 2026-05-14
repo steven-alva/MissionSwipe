@@ -37,6 +37,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var settingsWindowController: SettingsWindowController?
     private var smartFitCapacityWindowController: SmartFitCapacityWindowController?
     private var smartFitAdvancedWindowController: SmartFitAdvancedWindowController?
+    private var diagnosticsWindowController: DiagnosticsWindowController?
     private var isArrangingFromSecondMissionControlSwipe = false
     private var pendingLayoutPreviewWorkItem: DispatchWorkItem?
     private var previewLayoutGestureCandidate: PreviewLayoutGestureCandidate?
@@ -84,6 +85,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         settingsWindowController?.close()
         smartFitCapacityWindowController?.close()
         smartFitAdvancedWindowController?.close()
+        diagnosticsWindowController?.close()
         pendingLayoutPreviewWorkItem?.cancel()
         previewLayoutGestureCandidate = nil
         lastPreviewLayoutHUDUpdateAt = nil
@@ -179,33 +181,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             self?.configuration.enableDebugLogging = isEnabled
             self?.syncSettingsWindow()
         }
-        controller.onToggleMissionControlGestureProbe = { [weak self] isEnabled in
-            self?.configuration.enableMissionControlGestureProbe = isEnabled
-            self?.updateMissionControlGestureProbeEnabledState()
-            self?.syncSettingsWindow()
-        }
-        controller.onToggleInputEventProbe = { [weak self] isEnabled in
-            self?.configuration.enableInputEventProbe = isEnabled
-            self?.updateInputEventProbeEnabledState()
-            self?.syncSettingsWindow()
+        controller.onOpenDiagnosticsPanel = { [weak self] in
+            self?.openDiagnosticsPanel()
         }
         controller.onArrangeVisibleWindows = { [weak self] in
             self?.arrangeVisibleWindows(trigger: "settings")
         }
         controller.onUndoLastArrange = { [weak self] in
             self?.windowArranger.undoLastArrange()
-        }
-        controller.onCopyLastActionReport = { [weak self] in
-            self?.copyLastCloseReport()
-        }
-        controller.onCopyRecentLog = { [weak self] in
-            self?.copyRecentLog()
-        }
-        controller.onDumpWindowList = { [weak self] in
-            self?.debugWindowDumper.dumpWindowList()
-        }
-        controller.onDumpAXWindows = { [weak self] in
-            self?.debugWindowDumper.dumpAXWindows()
         }
         controller.onRefreshPermission = { [weak self] in
             self?.refreshPermissionStatus(showPromptWhenMissing: false)
@@ -237,6 +220,75 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             fiveWindowLayout: configuration.fiveWindowLayout,
             language: configuration.language
         )
+        diagnosticsWindowController?.update(
+            lineCount: configuration.recentLogLineCount,
+            missionControlGestureProbeEnabled: configuration.enableMissionControlGestureProbe,
+            inputEventProbeEnabled: configuration.enableInputEventProbe,
+            language: configuration.language
+        )
+    }
+
+    private func openDiagnosticsPanel() {
+        let controller: DiagnosticsWindowController
+        if let existing = diagnosticsWindowController {
+            controller = existing
+        } else {
+            controller = DiagnosticsWindowController(
+                lineCount: configuration.recentLogLineCount,
+                missionControlGestureProbeEnabled: configuration.enableMissionControlGestureProbe,
+                inputEventProbeEnabled: configuration.enableInputEventProbe,
+                language: configuration.language
+            )
+            diagnosticsWindowController = controller
+            controller.onChangeRecentLogLineCount = { [weak self] count in
+                self?.configuration.recentLogLineCount = count
+            }
+            controller.onCopyRecentLog = { [weak self] in
+                self?.copyRecentLog()
+            }
+            controller.onOpenLogFolder = { [weak self] in
+                self?.openLogFolder()
+            }
+            controller.onCopyLastActionReport = { [weak self] in
+                self?.copyLastCloseReport()
+            }
+            controller.onDumpWindowList = { [weak self] in
+                self?.debugWindowDumper.dumpWindowList()
+            }
+            controller.onDumpAXWindows = { [weak self] in
+                self?.debugWindowDumper.dumpAXWindows()
+            }
+            controller.onToggleMissionControlGestureProbe = { [weak self] isEnabled in
+                guard let self else { return }
+                self.configuration.enableMissionControlGestureProbe = isEnabled
+                self.updateMissionControlGestureProbeEnabledState()
+            }
+            controller.onToggleInputEventProbe = { [weak self] isEnabled in
+                guard let self else { return }
+                self.configuration.enableInputEventProbe = isEnabled
+                self.updateInputEventProbeEnabledState()
+            }
+        }
+        controller.update(
+            lineCount: configuration.recentLogLineCount,
+            missionControlGestureProbeEnabled: configuration.enableMissionControlGestureProbe,
+            inputEventProbeEnabled: configuration.enableInputEventProbe,
+            language: configuration.language
+        )
+        controller.show()
+    }
+
+    private func openLogFolder() {
+        let folder = FileManager.default.homeDirectoryForCurrentUser
+            .appendingPathComponent("Library", isDirectory: true)
+            .appendingPathComponent("Logs", isDirectory: true)
+            .appendingPathComponent("MissionSwipe", isDirectory: true)
+        let logFile = folder.appendingPathComponent("MissionSwipe.log")
+        if FileManager.default.fileExists(atPath: logFile.path) {
+            NSWorkspace.shared.activateFileViewerSelecting([logFile])
+        } else {
+            NSWorkspace.shared.open(folder)
+        }
     }
 
     private func openSmartFitAdvanced() {
@@ -971,17 +1023,29 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             return
         }
 
-        // Grab the tail end of the log so a single paste fits in chat without
-        // overwhelming the user. 300 lines covers several arrange + close cycles.
+        let configuredCount = configuration.recentLogLineCount
         let lines = raw.split(separator: "\n", omittingEmptySubsequences: false)
-        let tailCount = min(300, lines.count)
-        let tail = lines.suffix(tailCount).joined(separator: "\n")
+        let tail: String
+        let copiedCount: Int
+        if configuredCount == .all {
+            tail = raw
+            copiedCount = lines.count
+        } else {
+            let limit = min(configuredCount.rawValue, lines.count)
+            tail = lines.suffix(limit).joined(separator: "\n")
+            copiedCount = limit
+        }
 
         NSPasteboard.general.clearContents()
         NSPasteboard.general.setString(tail, forType: .string)
-        Logger.info("Copied last \(tailCount) log lines to clipboard")
+        Logger.info("Copied \(copiedCount) log lines to clipboard (mode=\(configuredCount.rawValue))")
 
-        let message = zh ? "已复制最近 \(tailCount) 行日志" : "Copied last \(tailCount) log lines"
+        let message: String
+        if configuredCount == .all {
+            message = zh ? "已复制完整日志(\(copiedCount) 行)" : "Copied entire log (\(copiedCount) lines)"
+        } else {
+            message = zh ? "已复制最近 \(copiedCount) 行日志" : "Copied last \(copiedCount) log lines"
+        }
         gestureHUD.show(message: message, progress: 1, kind: .success, duration: 1.4)
     }
 

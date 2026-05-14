@@ -1,5 +1,23 @@
 import Foundation
 
+enum LogCopyLineCount: Int, CaseIterable {
+    case fifty = 50
+    case hundred = 100
+    case twoHundred = 200
+    case fiveHundred = 500
+    case all = 0   // 0 sentinel value = copy the entire log
+
+    var displayLabel: (en: String, zh: String) {
+        switch self {
+        case .fifty:        return ("50 lines", "最近 50 行")
+        case .hundred:      return ("100 lines", "最近 100 行")
+        case .twoHundred:   return ("200 lines", "最近 200 行")
+        case .fiveHundred:  return ("500 lines", "最近 500 行")
+        case .all:          return ("Entire log", "完整日志")
+        }
+    }
+}
+
 enum SmartFitOverflowStrategy: String, CaseIterable {
     case minimize             // Default: minimize windows that don't fit cleanly
     case tolerateOverlap      // Keep all windows visible, accept some overlap
@@ -195,6 +213,7 @@ final class AppConfiguration {
     private let threeWindowLayoutKey = "SmartFitThreeWindowLayout"
     private let fourWindowLayoutKey = "SmartFitFourWindowLayout"
     private let fiveWindowLayoutKey = "SmartFitFiveWindowLayout"
+    private let recentLogLineCountKey = "DiagnosticsRecentLogLineCount"
     private let secondMissionControlSwipeUpToArrangeKey = "EnableSecondMissionControlSwipeUpToArrange"
     private let missionControlGestureProbeKey = "EnableMissionControlGestureProbe"
     private let inputEventProbeKey = "EnableInputEventProbe"
@@ -371,6 +390,20 @@ final class AppConfiguration {
         set {
             defaults.set(newValue.rawValue, forKey: fourWindowLayoutKey)
             Logger.info("FourWindowLayout set to \(newValue.rawValue)")
+        }
+    }
+
+    var recentLogLineCount: LogCopyLineCount {
+        get {
+            if defaults.object(forKey: recentLogLineCountKey) == nil {
+                return .fifty
+            }
+            let raw = defaults.integer(forKey: recentLogLineCountKey)
+            return LogCopyLineCount(rawValue: raw) ?? .fifty
+        }
+        set {
+            defaults.set(newValue.rawValue, forKey: recentLogLineCountKey)
+            Logger.info("DiagnosticsRecentLogLineCount set to \(newValue.rawValue)")
         }
     }
 

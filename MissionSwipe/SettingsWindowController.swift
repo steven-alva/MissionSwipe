@@ -11,14 +11,9 @@ final class SettingsWindowController: NSWindowController {
     var onOpenSmartFitCapacities: (() -> Void)?
     var onOpenSmartFitAdvanced: (() -> Void)?
     var onToggleDebugLogging: ((Bool) -> Void)?
-    var onToggleMissionControlGestureProbe: ((Bool) -> Void)?
-    var onToggleInputEventProbe: ((Bool) -> Void)?
     var onArrangeVisibleWindows: (() -> Void)?
     var onUndoLastArrange: (() -> Void)?
-    var onCopyLastActionReport: (() -> Void)?
-    var onCopyRecentLog: (() -> Void)?
-    var onDumpWindowList: (() -> Void)?
-    var onDumpAXWindows: (() -> Void)?
+    var onOpenDiagnosticsPanel: (() -> Void)?
     var onRefreshPermission: (() -> Void)?
     var onOpenAccessibilitySettings: (() -> Void)?
     var onHideMenuBarIcon: (() -> Void)?
@@ -31,8 +26,6 @@ final class SettingsWindowController: NSWindowController {
         case previewLayoutGestures
         case smartFitArrange
         case debugLogging
-        case missionControlGestureProbe
-        case inputEventProbe
     }
 
     private let permissionLabel = NSTextField(labelWithString: "")
@@ -78,8 +71,6 @@ final class SettingsWindowController: NSWindowController {
         set(.previewLayoutGestures, configuration.enablePreviewLayoutGestures)
         set(.smartFitArrange, configuration.enableSmartFitArrange)
         set(.debugLogging, configuration.enableDebugLogging)
-        set(.missionControlGestureProbe, configuration.enableMissionControlGestureProbe)
-        set(.inputEventProbe, configuration.enableInputEventProbe)
 
         languagePopup?.selectItem(withTitle: currentLanguage.displayName)
         permissionLabel.stringValue = isAccessibilityTrusted
@@ -171,13 +162,8 @@ final class SettingsWindowController: NSWindowController {
             title: text(en: "Diagnostics", zh: "诊断"),
             views: [
                 toggle(text(en: "Debug logging", zh: "调试日志"), detail: text(en: "More detailed logs for troubleshooting.", zh: "记录更详细的排查日志。"), key: .debugLogging),
-                toggle(text(en: "Mission Control gesture probe", zh: "调度中心手势探针"), detail: text(en: "Experimental probe for gesture research.", zh: "用于研究手势表现的实验探针。"), key: .missionControlGestureProbe),
-                toggle(text(en: "Input event probe", zh: "输入事件探针"), detail: text(en: "Experimental low-level input logging.", zh: "记录底层输入事件的实验功能。"), key: .inputEventProbe),
                 buttonRow([
-                    actionButton(text(en: "Copy Last Report", zh: "复制最近报告"), action: #selector(copyLastActionReport)),
-                    actionButton(text(en: "Copy Recent Log", zh: "复制最近日志"), action: #selector(copyRecentLog)),
-                    actionButton(text(en: "Dump Windows", zh: "导出窗口列表"), action: #selector(dumpWindowList)),
-                    actionButton(text(en: "Dump AX", zh: "导出 AX 窗口"), action: #selector(dumpAXWindows))
+                    actionButton(text(en: "Diagnostics panel…", zh: "诊断面板…"), action: #selector(openDiagnosticsPanel))
                 ])
             ]
         ))
@@ -315,10 +301,6 @@ final class SettingsWindowController: NSWindowController {
             onToggleSmartFitArrange?(isEnabled)
         case .debugLogging:
             onToggleDebugLogging?(isEnabled)
-        case .missionControlGestureProbe:
-            onToggleMissionControlGestureProbe?(isEnabled)
-        case .inputEventProbe:
-            onToggleInputEventProbe?(isEnabled)
         }
     }
 
@@ -330,28 +312,16 @@ final class SettingsWindowController: NSWindowController {
         onOpenSmartFitAdvanced?()
     }
 
+    @objc private func openDiagnosticsPanel() {
+        onOpenDiagnosticsPanel?()
+    }
+
     @objc private func arrangeVisibleWindows() {
         onArrangeVisibleWindows?()
     }
 
     @objc private func undoLastArrange() {
         onUndoLastArrange?()
-    }
-
-    @objc private func copyLastActionReport() {
-        onCopyLastActionReport?()
-    }
-
-    @objc private func copyRecentLog() {
-        onCopyRecentLog?()
-    }
-
-    @objc private func dumpWindowList() {
-        onDumpWindowList?()
-    }
-
-    @objc private func dumpAXWindows() {
-        onDumpAXWindows?()
     }
 
     @objc private func refreshPermission() {

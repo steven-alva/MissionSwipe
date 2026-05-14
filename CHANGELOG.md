@@ -2,6 +2,16 @@
 
 ## Unreleased
 
+## 0.7.5
+
+- Cleaned up `Settings → Diagnostics` from a wall of three toggles + four buttons to just two items: `Debug logging` and a `Diagnostics panel…` button.
+- New `Diagnostics panel` sub-window groups every troubleshooting tool by purpose:
+  - **Logs**: shows the log file path, a `Copy` action with a dropdown for line count (50 / 100 / 200 / 500 / Entire log), and a `Reveal in Finder` button.
+  - **Last action report**: the previous Copy Last Report button with its own context.
+  - **System window scan**: the `Dump CG windows` and `Dump AX windows` buttons with a note that they're most useful while Mission Control is open.
+  - **Experimental probes**: the Mission Control gesture probe and input event probe toggles, with warnings that they flood the log.
+- Default log copy size dropped from 300 lines to 50; user-pasteable into a chat without truncation.
+
 ## 0.7.4
 
 - Added per-window-count layout pickers in `Settings → Smart Fit → Advanced…`. Each layout option shows a thumbnail preview of the cell geometry, so you can see what you're picking before applying.
