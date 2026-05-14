@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+## 0.7.8
+
+- **Fixed: Smart Fit racing the target app's AX queue.** Same-display moves used to fire `setPosition` + `setSize` + `setPosition` back-to-back within a few milliseconds, expecting the target process to keep up. On slower configurations (observed on Chrome / M4 / 16GB / macOS 26.3.1) the size write would arrive before the position write had been processed, and Chrome would apply only the position — leaving the window at Chrome's default 500×474 size and triggering the adaptive pass to minimize "stubborn" windows that were actually just lagging. `setFrame` now pumps the run loop ~20-30ms between each AX write (matching what the cross-display path already did, just shorter). Arrange visibly takes ~200-400ms longer for a 4-window scene, but every window lands at its target instead of half of them being treated as stubborn and minimized.
+
 ## 0.7.7
 
 - **Reverted 0.7.6's preemptive minimize.** The "physical-fit" check that ran before dispatching the arrange pipeline was minimizing windows that previously fit fine on the local 14" display (saw a 5-window arrange suddenly drop to 4). The whole pre-pass — the `idealMinCellInches`/`acceptableMinCellInches` constants, the PPI-based predictor, the `physicallyFitWindows` reducer, and its call site — has been removed. Smart Fit now goes straight from the capacity cap into the layout dispatch, exactly like 0.7.5 did. The 0.7.6 primary-placement fix (right/left-swipe no longer gets clobbered by the adaptive pass) is preserved.

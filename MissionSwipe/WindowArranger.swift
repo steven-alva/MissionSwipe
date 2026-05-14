@@ -41,6 +41,17 @@ final class WindowArranger {
         static let missionControlExitRetryDelay: TimeInterval = 0.18
         static let missionControlExitSettleDelay: TimeInterval = 0.45
         static let maxMissionControlExitAttempts = 8
+        // Settle delays between AX writes during setFrame. macOS dispatches AX
+        // attribute writes to the target process; if a size write arrives before
+        // the previous position write has been processed, the target may apply
+        // only one of them (observed on Chrome on macOS 26.3.1 / M4 / 16GB —
+        // setPosition + setSize within 4ms left windows at Chrome's default size).
+        // Cross-display moves need longer because macOS also has to migrate the
+        // window to the new display, which can take an extra frame.
+        static let sameDisplaySettleDelay: TimeInterval = 0.02
+        static let sameDisplayVerifyDelay: TimeInterval = 0.03
+        static let crossDisplaySettleDelay: TimeInterval = 0.06
+        static let crossDisplaySizeSettleDelay: TimeInterval = 0.04
         static let stubbornSizeSlack: CGFloat = 42
         static let overlapMinimumArea: CGFloat = 2_500
         static let smartFitMinWindowCount = 4
@@ -1590,32 +1601,35 @@ final class WindowArranger {
             Logger.info("setFrame is moving the window across displays; using settle delays. current=\(currentBeforeMove?.integral.debugDescription ?? "nil"), target=\(frame.integral)")
         }
 
-        // Cross-display moves are racy. macOS asynchronously updates the window's display
-        // assignment after a position write, so a size write that follows immediately can land
-        // on the old display's coordinate space and produce a wrong final size. We sequence
-        // the writes with small run-loop pumps so the display change settles between steps.
+        // AX writes are dispatched to the target process asynchronously. Without a
+        // settle pump between setPosition and setSize, the target sometimes only
+        // applies one of them. Cross-display moves need a longer pump because the
+        // OS also migrates the window to its new display between writes; same-display
+        // moves still need a smaller pump for apps that are slow to process AX writes
+        // (Chrome on M4 / macOS 26.3.1 / 16GB needed at least ~20ms to consistently
+        // accept the size that follows a position write).
+        let positionSettle = crossDisplay ? Constants.crossDisplaySettleDelay : Constants.sameDisplaySettleDelay
+        let sizeSettle = crossDisplay ? Constants.crossDisplaySizeSettleDelay : Constants.sameDisplaySettleDelay
+
         let initialPositionResult = AXUIElementSetAttributeValue(element, kAXPositionAttribute as CFString, positionValue)
-        if crossDisplay {
-            pumpRunLoop(forSeconds: 0.06)
-        }
+        pumpRunLoop(forSeconds: positionSettle)
 
         let sizeResult = AXUIElementSetAttributeValue(element, kAXSizeAttribute as CFString, sizeValue)
-        if crossDisplay {
-            pumpRunLoop(forSeconds: 0.04)
-        }
+        pumpRunLoop(forSeconds: sizeSettle)
 
         let postSizePositionResult = AXUIElementSetAttributeValue(element, kAXPositionAttribute as CFString, positionValue)
+        pumpRunLoop(forSeconds: Constants.sameDisplayVerifyDelay)
 
         if initialPositionResult == .success, sizeResult == .success, postSizePositionResult == .success {
             if frameMatchesTarget(element: element, target: frame) {
                 return true
             }
 
-            if crossDisplay {
-                pumpRunLoop(forSeconds: 0.04)
-            }
+            pumpRunLoop(forSeconds: Constants.sameDisplayVerifyDelay)
             let retrySizeResult = AXUIElementSetAttributeValue(element, kAXSizeAttribute as CFString, sizeValue)
+            pumpRunLoop(forSeconds: sizeSettle)
             let finalPositionResult = AXUIElementSetAttributeValue(element, kAXPositionAttribute as CFString, positionValue)
+            pumpRunLoop(forSeconds: Constants.sameDisplayVerifyDelay)
             if retrySizeResult == .success, finalPositionResult == .success {
                 if let actualFrame = currentFrame(for: element) {
                     Logger.warning("Arranged window settled away from target after retry. target=\(frame), actual=\(actualFrame.integral), crossDisplay=\(crossDisplay)")
