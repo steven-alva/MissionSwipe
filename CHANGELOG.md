@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+## 0.7.1
+
+- Smart Fit no longer drops flexible windows when one neighbour is stubborn. The adaptive second pass used to treat each non-stubborn window's first-pass tile size as a hard pack width, so a single stubborn window (e.g. NetEase Music at 1056x752) could force every flexible Chrome alongside it to be minimized. Flexible windows are now packed using a smaller flex footprint (480x320) and stretched into the remaining row width afterwards.
+- `Copy Last Action Report` now shows a HUD confirmation on both paths: "Report copied" on success, and "No recent report — close or minimize a window first" when there is no close/minimize report yet (the previous build silently did nothing).
+
 ## 0.7.0
 
 - Added Smart Fit arrange: a screen-size-aware tiling pass that caps the number of arranged windows based on display physical size, picks the most-recently-used windows, and decides what to do with the rest according to a user-configurable overflow strategy.

@@ -2,7 +2,7 @@
 
 MissionSwipe is a macOS AppKit menu bar app. It is gesture-first: open Mission Control, then close, minimize, or rearrange windows with trackpad swipes. The product boundary is intentionally narrow — MissionSwipe only acts when Mission Control is active, so normal desktop scrolling and clicking are untouched.
 
-## Current version: 0.7.0
+## Current version: 0.7.1
 
 0.7.0 introduces Smart Fit, a screen-size-aware tiling engine with three overflow strategies (minimize, tolerate overlap, stack with peek) and a per-screen capacity profile. The global hotkey from earlier MVPs has been retired in favour of the gesture-only product direction.
 
@@ -60,7 +60,7 @@ scripts/build_app.sh
 This creates:
 
 - `dist/MissionSwipe.app`
-- `dist/MissionSwipe-0.7.0-macos.zip`
+- `dist/MissionSwipe-0.7.1-macos.zip`
 
 The script builds a universal app for Apple Silicon and Intel Macs by default. For a faster local-only build, run:
 
