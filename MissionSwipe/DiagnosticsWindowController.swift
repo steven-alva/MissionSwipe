@@ -5,6 +5,7 @@ final class DiagnosticsWindowController: NSWindowController {
     var onCopyRecentLog: (() -> Void)?
     var onOpenLogFolder: (() -> Void)?
     var onCopyLastActionReport: (() -> Void)?
+    var onCaptureSceneSnapshot: (() -> Void)?
     var onDumpWindowList: (() -> Void)?
     var onDumpAXWindows: (() -> Void)?
     var onToggleMissionControlGestureProbe: ((Bool) -> Void)?
@@ -111,6 +112,12 @@ final class DiagnosticsWindowController: NSWindowController {
         intro.preferredMaxLayoutWidth = 472
         stack.addArrangedSubview(intro)
 
+        // Scene snapshot — full one-shot diagnostic
+        stack.addArrangedSubview(sectionHeader(text(en: "📸 Capture scene", zh: "📸 捕获当前场景")))
+        stack.addArrangedSubview(buildSceneSnapshotSection())
+
+        stack.addArrangedSubview(separatorView())
+
         // Logs section
         stack.addArrangedSubview(sectionHeader(text(en: "📋 Logs", zh: "📋 日志")))
         stack.addArrangedSubview(buildLogSection())
@@ -143,6 +150,33 @@ final class DiagnosticsWindowController: NSWindowController {
         bottomRow.alignment = .centerY
         bottomRow.spacing = 8
         stack.addArrangedSubview(bottomRow)
+    }
+
+    private func buildSceneSnapshotSection() -> NSView {
+        let container = NSStackView()
+        container.orientation = .vertical
+        container.alignment = .leading
+        container.spacing = 6
+
+        let hint = NSTextField(labelWithString: text(
+            en: "One-shot dump of system, display, configuration, and every visible window — plus app bundle IDs and AX attributes. Paste this when reporting a layout bug.",
+            zh: "一次性导出系统、屏幕、配置和当前所有窗口的详细信息（包含 App Bundle ID、AX 属性等）。报排版相关 bug 时把这段贴出来。"
+        ))
+        hint.font = .systemFont(ofSize: 11)
+        hint.textColor = .secondaryLabelColor
+        hint.maximumNumberOfLines = 3
+        hint.preferredMaxLayoutWidth = 472
+        container.addArrangedSubview(hint)
+
+        let button = NSButton(
+            title: text(en: "Capture scene to clipboard", zh: "捕获场景到剪贴板"),
+            target: self,
+            action: #selector(captureSceneTapped)
+        )
+        button.bezelStyle = .rounded
+        container.addArrangedSubview(button)
+
+        return container
     }
 
     private func buildLogSection() -> NSView {
@@ -332,6 +366,10 @@ final class DiagnosticsWindowController: NSWindowController {
 
     @objc private func copyReportTapped() {
         onCopyLastActionReport?()
+    }
+
+    @objc private func captureSceneTapped() {
+        onCaptureSceneSnapshot?()
     }
 
     @objc private func dumpCGTapped() {

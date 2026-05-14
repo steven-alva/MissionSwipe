@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+## 0.7.7
+
+- **Reverted 0.7.6's preemptive minimize.** The "physical-fit" check that ran before dispatching the arrange pipeline was minimizing windows that previously fit fine on the local 14" display (saw a 5-window arrange suddenly drop to 4). The whole pre-pass — the `idealMinCellInches`/`acceptableMinCellInches` constants, the PPI-based predictor, the `physicallyFitWindows` reducer, and its call site — has been removed. Smart Fit now goes straight from the capacity cap into the layout dispatch, exactly like 0.7.5 did. The 0.7.6 primary-placement fix (right/left-swipe no longer gets clobbered by the adaptive pass) is preserved.
+- **Diagnostics → "Capture scene to clipboard".** New one-shot diagnostic button that produces a multi-section text dump covering: macOS version + hardware model + CPU arch + memory + accessibility-permission state; every screen's frame, visible frame, backing scale, physical mm/inches, diagonal, native pixels, and PPI (logical *and* native); the full Smart Fit / gesture / probe configuration; and every visible window's CG bounds + AX role/subrole/position/size + app bundle ID + executable path + AX attribute list + minimized/fullscreen/main/focused flags. Output is copied to the clipboard *and* mirrored into the log. Designed for cross-machine debugging — paste it into a bug report and the difference between two machines (scaling, PWA bundle IDs, AX availability, etc.) is right there.
+
 ## 0.7.6
 
 - **Resolution-independent arrange.** Smart Fit now uses each screen's *physical* width (in inches), not its pixel width, to decide whether a layout will fit. The minimum acceptable cell width is 4.5 inches (target 5.0 inches), tuned so Chrome and similarly-sized apps consistently accept it. Practically this means a 14" laptop produces the same arrange outcome whether it's set to "Default" or "More Space" scaling — same number of visible windows, same layout pattern, just at different pixel counts.

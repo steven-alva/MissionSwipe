@@ -26,6 +26,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private let windowEnumerator = WindowEnumerator()
     private let missionControlDetector = MissionControlDetector()
     private let debugWindowDumper = DebugWindowDumper()
+    private let sceneSnapshotCapture = SceneSnapshotCapture()
     private let trackpadGestureDetector = TrackpadGestureDetector()
     private let gestureHUD = GestureHUDController()
     private let layoutPreviewHUD = LayoutPreviewHUDController()
@@ -251,6 +252,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             }
             controller.onCopyLastActionReport = { [weak self] in
                 self?.copyLastCloseReport()
+            }
+            controller.onCaptureSceneSnapshot = { [weak self] in
+                self?.captureSceneSnapshot()
             }
             controller.onDumpWindowList = { [weak self] in
                 self?.debugWindowDumper.dumpWindowList()
@@ -1007,6 +1011,20 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             ? "报告已复制"
             : "Report copied"
         gestureHUD.show(message: message, progress: 1, kind: .success, duration: 1.2)
+    }
+
+    private func captureSceneSnapshot() {
+        let snapshot = sceneSnapshotCapture.capture()
+        NSPasteboard.general.clearContents()
+        NSPasteboard.general.setString(snapshot, forType: .string)
+        let lineCount = snapshot.split(separator: "\n", omittingEmptySubsequences: false).count
+        Logger.info("Scene snapshot captured (\(lineCount) lines) and copied to clipboard")
+        Logger.info("===== Scene Snapshot Begin =====\n\(snapshot)\n===== Scene Snapshot End =====")
+        let zh = configuration.language == .simplifiedChinese
+        let message = zh
+            ? "已捕获场景 (\(lineCount) 行) — 已复制并写入日志"
+            : "Scene captured (\(lineCount) lines) — copied & logged"
+        gestureHUD.show(message: message, progress: 1, kind: .success, duration: 1.8)
     }
 
     private func copyRecentLog() {
