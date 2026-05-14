@@ -16,6 +16,7 @@ final class SettingsWindowController: NSWindowController {
     var onArrangeVisibleWindows: (() -> Void)?
     var onUndoLastArrange: (() -> Void)?
     var onCopyLastActionReport: (() -> Void)?
+    var onCopyRecentLog: (() -> Void)?
     var onDumpWindowList: (() -> Void)?
     var onDumpAXWindows: (() -> Void)?
     var onRefreshPermission: (() -> Void)?
@@ -174,6 +175,7 @@ final class SettingsWindowController: NSWindowController {
                 toggle(text(en: "Input event probe", zh: "输入事件探针"), detail: text(en: "Experimental low-level input logging.", zh: "记录底层输入事件的实验功能。"), key: .inputEventProbe),
                 buttonRow([
                     actionButton(text(en: "Copy Last Report", zh: "复制最近报告"), action: #selector(copyLastActionReport)),
+                    actionButton(text(en: "Copy Recent Log", zh: "复制最近日志"), action: #selector(copyRecentLog)),
                     actionButton(text(en: "Dump Windows", zh: "导出窗口列表"), action: #selector(dumpWindowList)),
                     actionButton(text(en: "Dump AX", zh: "导出 AX 窗口"), action: #selector(dumpAXWindows))
                 ])
@@ -338,6 +340,10 @@ final class SettingsWindowController: NSWindowController {
 
     @objc private func copyLastActionReport() {
         onCopyLastActionReport?()
+    }
+
+    @objc private func copyRecentLog() {
+        onCopyRecentLog?()
     }
 
     @objc private func dumpWindowList() {

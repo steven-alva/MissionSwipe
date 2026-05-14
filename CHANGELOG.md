@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+## 0.7.3
+
+- Added `Copy Recent Log` button to `Settings → Diagnostics` so you can paste the latest ~300 log lines from inside the app without opening a terminal.
+- Reverted the 0.7.2 default 3-window layout from "3 equal columns" back to the original "1 big + 2 stacked" layout. The column variant will return as an explicit layout option in 0.7.4 rather than as a forced default change.
+
 ## 0.7.2
 
 - `arrangeThreeWindows` now uses a three equal-width columns layout (full-height each) instead of the old "1 big + 2 stacked" layout. The old layout asked the primary window for the full screen height, which Chrome (and several other apps) routinely refuse — that left the left half of the screen empty. Three columns make every window short-and-wide, which apps respect far more reliably and keeps the screen filled.

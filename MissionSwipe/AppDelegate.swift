@@ -195,6 +195,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         controller.onCopyLastActionReport = { [weak self] in
             self?.copyLastCloseReport()
         }
+        controller.onCopyRecentLog = { [weak self] in
+            self?.copyRecentLog()
+        }
         controller.onDumpWindowList = { [weak self] in
             self?.debugWindowDumper.dumpWindowList()
         }
@@ -925,6 +928,34 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             ? "报告已复制"
             : "Report copied"
         gestureHUD.show(message: message, progress: 1, kind: .success, duration: 1.2)
+    }
+
+    private func copyRecentLog() {
+        let zh = configuration.language == .simplifiedChinese
+        let logURL = FileManager.default.homeDirectoryForCurrentUser
+            .appendingPathComponent("Library", isDirectory: true)
+            .appendingPathComponent("Logs", isDirectory: true)
+            .appendingPathComponent("MissionSwipe", isDirectory: true)
+            .appendingPathComponent("MissionSwipe.log")
+
+        guard let raw = try? String(contentsOf: logURL, encoding: .utf8), !raw.isEmpty else {
+            let message = zh ? "暂无日志" : "No log content yet"
+            gestureHUD.show(message: message, progress: 0, kind: .warning, duration: 1.6)
+            return
+        }
+
+        // Grab the tail end of the log so a single paste fits in chat without
+        // overwhelming the user. 300 lines covers several arrange + close cycles.
+        let lines = raw.split(separator: "\n", omittingEmptySubsequences: false)
+        let tailCount = min(300, lines.count)
+        let tail = lines.suffix(tailCount).joined(separator: "\n")
+
+        NSPasteboard.general.clearContents()
+        NSPasteboard.general.setString(tail, forType: .string)
+        Logger.info("Copied last \(tailCount) log lines to clipboard")
+
+        let message = zh ? "已复制最近 \(tailCount) 行日志" : "Copied last \(tailCount) log lines"
+        gestureHUD.show(message: message, progress: 1, kind: .success, duration: 1.4)
     }
 
     private func hideMenuBarIcon() {
