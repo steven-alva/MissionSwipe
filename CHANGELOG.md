@@ -2,6 +2,14 @@
 
 ## Unreleased
 
+## 0.7.4
+
+- Added per-window-count layout pickers in `Settings → Smart Fit → Advanced…`. Each layout option shows a thumbnail preview of the cell geometry, so you can see what you're picking before applying.
+  - **3 windows**: `1 big + 2 small` (default), `3 equal columns`
+  - **4 windows**: `2×2 grid` (default), `1 big + 3 small`
+  - **5 windows**: `3 over 2 (balanced)` (default), `Left 2 big + right 3 small`, `Bottom 2 big + top 3 small`
+- Each pick is remembered per user; default values match the original 0.7.x defaults, so upgrading does not change anyone's existing layout unless they tap a thumbnail.
+
 ## 0.7.3
 
 - Added `Copy Recent Log` button to `Settings → Diagnostics` so you can paste the latest ~300 log lines from inside the app without opening a terminal.

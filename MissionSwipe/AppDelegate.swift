@@ -50,6 +50,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         windowArranger.smartFitCapacityProfile = configuration.smartFitCapacityProfile
         windowArranger.smartFitOverflowStrategy = configuration.smartFitOverflowStrategy
         windowArranger.smartFitOverlapTolerance = configuration.smartFitOverlapTolerance
+        windowArranger.threeWindowLayout = configuration.threeWindowLayout
+        windowArranger.fourWindowLayout = configuration.fourWindowLayout
+        windowArranger.fiveWindowLayout = configuration.fiveWindowLayout
         windowArranger.onSmartFitReport = { [weak self] report in
             self?.handleSmartFitReport(report)
         }
@@ -229,6 +232,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         smartFitAdvancedWindowController?.update(
             strategy: configuration.smartFitOverflowStrategy,
             tolerance: configuration.smartFitOverlapTolerance,
+            threeWindowLayout: configuration.threeWindowLayout,
+            fourWindowLayout: configuration.fourWindowLayout,
+            fiveWindowLayout: configuration.fiveWindowLayout,
             language: configuration.language
         )
     }
@@ -241,6 +247,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             controller = SmartFitAdvancedWindowController(
                 strategy: configuration.smartFitOverflowStrategy,
                 tolerance: configuration.smartFitOverlapTolerance,
+                threeWindowLayout: configuration.threeWindowLayout,
+                fourWindowLayout: configuration.fourWindowLayout,
+                fiveWindowLayout: configuration.fiveWindowLayout,
                 language: configuration.language
             )
             smartFitAdvancedWindowController = controller
@@ -254,10 +263,28 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 self.configuration.smartFitOverlapTolerance = tolerance
                 self.windowArranger.smartFitOverlapTolerance = tolerance
             }
+            controller.onThreeWindowLayoutChanged = { [weak self] layout in
+                guard let self else { return }
+                self.configuration.threeWindowLayout = layout
+                self.windowArranger.threeWindowLayout = layout
+            }
+            controller.onFourWindowLayoutChanged = { [weak self] layout in
+                guard let self else { return }
+                self.configuration.fourWindowLayout = layout
+                self.windowArranger.fourWindowLayout = layout
+            }
+            controller.onFiveWindowLayoutChanged = { [weak self] layout in
+                guard let self else { return }
+                self.configuration.fiveWindowLayout = layout
+                self.windowArranger.fiveWindowLayout = layout
+            }
         }
         controller.update(
             strategy: configuration.smartFitOverflowStrategy,
             tolerance: configuration.smartFitOverlapTolerance,
+            threeWindowLayout: configuration.threeWindowLayout,
+            fourWindowLayout: configuration.fourWindowLayout,
+            fiveWindowLayout: configuration.fiveWindowLayout,
             language: configuration.language
         )
         controller.show()

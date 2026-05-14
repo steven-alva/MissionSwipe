@@ -37,6 +37,114 @@ enum SmartFitOverflowStrategy: String, CaseIterable {
     }
 }
 
+// A picked layout describes both the geometry (what each window's normalized frame
+// looks like inside a unit square) and how the picker should label it. Thumbnails
+// in the Settings UI render directly from these normalized frames.
+
+enum ThreeWindowLayout: String, CaseIterable {
+    case primaryPlusTwo    // 1 big + 2 small stacked (default)
+    case threeColumns      // 3 equal columns
+
+    var displayLabel: (en: String, zh: String) {
+        switch self {
+        case .primaryPlusTwo: return ("1 big + 2 small", "1 大 + 2 小")
+        case .threeColumns:   return ("3 equal columns", "3 列等宽")
+        }
+    }
+
+    /// Frames in unit-square coordinates (0..1 in both axes, top-left origin).
+    var thumbnailFrames: [CGRect] {
+        switch self {
+        case .primaryPlusTwo:
+            return [
+                CGRect(x: 0.00, y: 0.00, width: 0.50, height: 1.00),   // big left
+                CGRect(x: 0.50, y: 0.00, width: 0.50, height: 0.50),   // top-right
+                CGRect(x: 0.50, y: 0.50, width: 0.50, height: 0.50)    // bottom-right
+            ]
+        case .threeColumns:
+            return [
+                CGRect(x: 0.00, y: 0.00, width: 0.33, height: 1.00),
+                CGRect(x: 0.34, y: 0.00, width: 0.33, height: 1.00),
+                CGRect(x: 0.67, y: 0.00, width: 0.33, height: 1.00)
+            ]
+        }
+    }
+}
+
+enum FourWindowLayout: String, CaseIterable {
+    case grid2x2           // 2x2 (default)
+    case primaryPlusThree  // 1 big + 3 stacked
+
+    var displayLabel: (en: String, zh: String) {
+        switch self {
+        case .grid2x2:          return ("2×2 grid", "2×2 网格")
+        case .primaryPlusThree: return ("1 big + 3 small", "1 大 + 3 小")
+        }
+    }
+
+    var thumbnailFrames: [CGRect] {
+        switch self {
+        case .grid2x2:
+            return [
+                CGRect(x: 0.00, y: 0.00, width: 0.50, height: 0.50),
+                CGRect(x: 0.50, y: 0.00, width: 0.50, height: 0.50),
+                CGRect(x: 0.00, y: 0.50, width: 0.50, height: 0.50),
+                CGRect(x: 0.50, y: 0.50, width: 0.50, height: 0.50)
+            ]
+        case .primaryPlusThree:
+            return [
+                CGRect(x: 0.00, y: 0.00, width: 0.50, height: 1.00),
+                CGRect(x: 0.50, y: 0.00, width: 0.50, height: 0.33),
+                CGRect(x: 0.50, y: 0.34, width: 0.50, height: 0.33),
+                CGRect(x: 0.50, y: 0.67, width: 0.50, height: 0.33)
+            ]
+        }
+    }
+}
+
+enum FiveWindowLayout: String, CaseIterable {
+    case threeOverTwoEqual            // top 3 + bottom 2 with equal row heights (default)
+    case leftTwoBigRightThreeSmall    // left half: 2 stacked big, right half: 3 stacked small
+    case bottomTwoBigTopThreeSmall    // top row 3 small (40% height), bottom row 2 big (60% height)
+
+    var displayLabel: (en: String, zh: String) {
+        switch self {
+        case .threeOverTwoEqual:           return ("3 over 2 (balanced)", "3+2 排(均等)")
+        case .leftTwoBigRightThreeSmall:   return ("Left 2 big + right 3 small", "左 2 大 + 右 3 小")
+        case .bottomTwoBigTopThreeSmall:   return ("Bottom 2 big + top 3 small", "下 2 大 + 上 3 小")
+        }
+    }
+
+    var thumbnailFrames: [CGRect] {
+        switch self {
+        case .threeOverTwoEqual:
+            return [
+                CGRect(x: 0.00, y: 0.00, width: 0.33, height: 0.50),
+                CGRect(x: 0.34, y: 0.00, width: 0.33, height: 0.50),
+                CGRect(x: 0.67, y: 0.00, width: 0.33, height: 0.50),
+                CGRect(x: 0.00, y: 0.50, width: 0.50, height: 0.50),
+                CGRect(x: 0.50, y: 0.50, width: 0.50, height: 0.50)
+            ]
+        case .leftTwoBigRightThreeSmall:
+            return [
+                CGRect(x: 0.00, y: 0.00, width: 0.50, height: 0.50),
+                CGRect(x: 0.00, y: 0.50, width: 0.50, height: 0.50),
+                CGRect(x: 0.50, y: 0.00, width: 0.50, height: 0.33),
+                CGRect(x: 0.50, y: 0.34, width: 0.50, height: 0.33),
+                CGRect(x: 0.50, y: 0.67, width: 0.50, height: 0.33)
+            ]
+        case .bottomTwoBigTopThreeSmall:
+            return [
+                CGRect(x: 0.00, y: 0.00, width: 0.33, height: 0.40),
+                CGRect(x: 0.34, y: 0.00, width: 0.33, height: 0.40),
+                CGRect(x: 0.67, y: 0.00, width: 0.33, height: 0.40),
+                CGRect(x: 0.00, y: 0.40, width: 0.50, height: 0.60),
+                CGRect(x: 0.50, y: 0.40, width: 0.50, height: 0.60)
+            ]
+        }
+    }
+}
+
 struct SmartFitCapacityProfile: Equatable {
     var compact: Int   // ≤15"
     var laptop: Int    // 16"-20" (covers 16-17" laptops + the 18-20 gap)
@@ -84,6 +192,9 @@ final class AppConfiguration {
     private let smartFitCapacityHugeKey = "SmartFitCapacityHuge"
     private let smartFitOverflowStrategyKey = "SmartFitOverflowStrategy"
     private let smartFitOverlapToleranceKey = "SmartFitOverlapTolerance"
+    private let threeWindowLayoutKey = "SmartFitThreeWindowLayout"
+    private let fourWindowLayoutKey = "SmartFitFourWindowLayout"
+    private let fiveWindowLayoutKey = "SmartFitFiveWindowLayout"
     private let secondMissionControlSwipeUpToArrangeKey = "EnableSecondMissionControlSwipeUpToArrange"
     private let missionControlGestureProbeKey = "EnableMissionControlGestureProbe"
     private let inputEventProbeKey = "EnableInputEventProbe"
@@ -232,6 +343,48 @@ final class AppConfiguration {
         set {
             defaults.set(newValue.rawValue, forKey: smartFitOverflowStrategyKey)
             Logger.info("SmartFitOverflowStrategy set to \(newValue.rawValue)")
+        }
+    }
+
+    var threeWindowLayout: ThreeWindowLayout {
+        get {
+            guard let raw = defaults.string(forKey: threeWindowLayoutKey),
+                  let value = ThreeWindowLayout(rawValue: raw) else {
+                return .primaryPlusTwo
+            }
+            return value
+        }
+        set {
+            defaults.set(newValue.rawValue, forKey: threeWindowLayoutKey)
+            Logger.info("ThreeWindowLayout set to \(newValue.rawValue)")
+        }
+    }
+
+    var fourWindowLayout: FourWindowLayout {
+        get {
+            guard let raw = defaults.string(forKey: fourWindowLayoutKey),
+                  let value = FourWindowLayout(rawValue: raw) else {
+                return .grid2x2
+            }
+            return value
+        }
+        set {
+            defaults.set(newValue.rawValue, forKey: fourWindowLayoutKey)
+            Logger.info("FourWindowLayout set to \(newValue.rawValue)")
+        }
+    }
+
+    var fiveWindowLayout: FiveWindowLayout {
+        get {
+            guard let raw = defaults.string(forKey: fiveWindowLayoutKey),
+                  let value = FiveWindowLayout(rawValue: raw) else {
+                return .threeOverTwoEqual
+            }
+            return value
+        }
+        set {
+            defaults.set(newValue.rawValue, forKey: fiveWindowLayoutKey)
+            Logger.info("FiveWindowLayout set to \(newValue.rawValue)")
         }
     }
 

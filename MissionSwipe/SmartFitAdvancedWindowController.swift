@@ -3,21 +3,40 @@ import AppKit
 final class SmartFitAdvancedWindowController: NSWindowController {
     var onStrategyChanged: ((SmartFitOverflowStrategy) -> Void)?
     var onToleranceChanged: ((Double) -> Void)?
+    var onThreeWindowLayoutChanged: ((ThreeWindowLayout) -> Void)?
+    var onFourWindowLayoutChanged: ((FourWindowLayout) -> Void)?
+    var onFiveWindowLayoutChanged: ((FiveWindowLayout) -> Void)?
 
     private var strategy: SmartFitOverflowStrategy
     private var tolerance: Double
+    private var threeWindowLayout: ThreeWindowLayout
+    private var fourWindowLayout: FourWindowLayout
+    private var fiveWindowLayout: FiveWindowLayout
     private var language: AppLanguage
 
     private var strategyButtons: [SmartFitOverflowStrategy: NSButton] = [:]
     private var toleranceSlider: NSSlider?
     private var toleranceLabel: NSTextField?
+    private var threeLayoutButtons: [ThreeWindowLayout: LayoutThumbnailButton] = [:]
+    private var fourLayoutButtons: [FourWindowLayout: LayoutThumbnailButton] = [:]
+    private var fiveLayoutButtons: [FiveWindowLayout: LayoutThumbnailButton] = [:]
 
-    init(strategy: SmartFitOverflowStrategy, tolerance: Double, language: AppLanguage) {
+    init(
+        strategy: SmartFitOverflowStrategy,
+        tolerance: Double,
+        threeWindowLayout: ThreeWindowLayout,
+        fourWindowLayout: FourWindowLayout,
+        fiveWindowLayout: FiveWindowLayout,
+        language: AppLanguage
+    ) {
         self.strategy = strategy
         self.tolerance = tolerance
+        self.threeWindowLayout = threeWindowLayout
+        self.fourWindowLayout = fourWindowLayout
+        self.fiveWindowLayout = fiveWindowLayout
         self.language = language
         let window = NSWindow(
-            contentRect: NSRect(x: 0, y: 0, width: 520, height: 480),
+            contentRect: NSRect(x: 0, y: 0, width: 560, height: 780),
             styleMask: [.titled, .closable],
             backing: .buffered,
             defer: false
@@ -39,10 +58,20 @@ final class SmartFitAdvancedWindowController: NSWindowController {
         window?.makeKeyAndOrderFront(nil)
     }
 
-    func update(strategy: SmartFitOverflowStrategy, tolerance: Double, language: AppLanguage) {
+    func update(
+        strategy: SmartFitOverflowStrategy,
+        tolerance: Double,
+        threeWindowLayout: ThreeWindowLayout,
+        fourWindowLayout: FourWindowLayout,
+        fiveWindowLayout: FiveWindowLayout,
+        language: AppLanguage
+    ) {
         let languageChanged = self.language != language
         self.strategy = strategy
         self.tolerance = tolerance
+        self.threeWindowLayout = threeWindowLayout
+        self.fourWindowLayout = fourWindowLayout
+        self.fiveWindowLayout = fiveWindowLayout
         if languageChanged {
             self.language = language
             buildContent()
@@ -52,6 +81,7 @@ final class SmartFitAdvancedWindowController: NSWindowController {
             }
             toleranceSlider?.doubleValue = tolerance * 100
             toleranceLabel?.stringValue = formatTolerance(tolerance)
+            refreshLayoutSelections()
         }
     }
 
@@ -61,6 +91,9 @@ final class SmartFitAdvancedWindowController: NSWindowController {
         }
 
         strategyButtons.removeAll()
+        threeLayoutButtons.removeAll()
+        fourLayoutButtons.removeAll()
+        fiveLayoutButtons.removeAll()
         window.title = text(en: "Smart Fit Advanced", zh: "Smart Fit 高级设置")
 
         let root = NSView()
@@ -85,30 +118,49 @@ final class SmartFitAdvancedWindowController: NSWindowController {
         title.font = .systemFont(ofSize: 18, weight: .semibold)
         stack.addArrangedSubview(title)
 
-        let intro = NSTextField(labelWithString: text(
+        // Overflow strategy section
+        let strategyHeader = sectionHeader(text(en: "Overflow strategy", zh: "溢出策略"))
+        stack.addArrangedSubview(strategyHeader)
+
+        let strategyIntro = NSTextField(labelWithString: text(
             en: "How should Smart Fit handle windows that don't all fit on screen?",
             zh: "当窗口无法一次性干净铺下时,Smart Fit 应该怎么处理?"
         ))
-        intro.font = .systemFont(ofSize: 12)
-        intro.textColor = .secondaryLabelColor
-        intro.maximumNumberOfLines = 2
-        intro.preferredMaxLayoutWidth = 472
-        stack.addArrangedSubview(intro)
+        strategyIntro.font = .systemFont(ofSize: 11)
+        strategyIntro.textColor = .secondaryLabelColor
+        strategyIntro.maximumNumberOfLines = 2
+        strategyIntro.preferredMaxLayoutWidth = 512
+        stack.addArrangedSubview(strategyIntro)
 
-        // Strategy radio rows
-        let group = NSStackView()
-        group.orientation = .vertical
-        group.alignment = .leading
-        group.spacing = 10
-
+        let strategyGroup = NSStackView()
+        strategyGroup.orientation = .vertical
+        strategyGroup.alignment = .leading
+        strategyGroup.spacing = 8
         for option in SmartFitOverflowStrategy.allCases {
-            group.addArrangedSubview(buildStrategyRow(option))
+            strategyGroup.addArrangedSubview(buildStrategyRow(option))
         }
-        stack.addArrangedSubview(group)
+        stack.addArrangedSubview(strategyGroup)
 
-        // Tolerance slider section
         stack.addArrangedSubview(separatorView())
         stack.addArrangedSubview(buildToleranceSection())
+
+        stack.addArrangedSubview(separatorView())
+
+        // Layout style section
+        stack.addArrangedSubview(sectionHeader(text(en: "Layout styles", zh: "布局样式")))
+        let layoutIntro = NSTextField(labelWithString: text(
+            en: "Pick the layout for 3 / 4 / 5 visible windows.",
+            zh: "为 3 / 4 / 5 个可见窗口分别挑选布局。"
+        ))
+        layoutIntro.font = .systemFont(ofSize: 11)
+        layoutIntro.textColor = .secondaryLabelColor
+        layoutIntro.maximumNumberOfLines = 2
+        layoutIntro.preferredMaxLayoutWidth = 512
+        stack.addArrangedSubview(layoutIntro)
+
+        stack.addArrangedSubview(buildThreeLayoutPicker())
+        stack.addArrangedSubview(buildFourLayoutPicker())
+        stack.addArrangedSubview(buildFiveLayoutPicker())
 
         // Done button
         let doneButton = NSButton(title: text(en: "Done", zh: "完成"), target: self, action: #selector(doneTapped))
@@ -141,7 +193,7 @@ final class SmartFitAdvancedWindowController: NSWindowController {
         detail.font = .systemFont(ofSize: 11)
         detail.textColor = .secondaryLabelColor
         detail.maximumNumberOfLines = 3
-        detail.preferredMaxLayoutWidth = 452
+        detail.preferredMaxLayoutWidth = 492
         container.addArrangedSubview(detail)
 
         return container
@@ -164,7 +216,7 @@ final class SmartFitAdvancedWindowController: NSWindowController {
         hint.font = .systemFont(ofSize: 11)
         hint.textColor = .secondaryLabelColor
         hint.maximumNumberOfLines = 2
-        hint.preferredMaxLayoutWidth = 452
+        hint.preferredMaxLayoutWidth = 512
         container.addArrangedSubview(hint)
 
         let sliderRow = NSStackView()
@@ -187,7 +239,7 @@ final class SmartFitAdvancedWindowController: NSWindowController {
         slider.allowsTickMarkValuesOnly = false
         slider.numberOfTickMarks = 5
         slider.tickMarkPosition = .below
-        slider.widthAnchor.constraint(equalToConstant: 280).isActive = true
+        slider.widthAnchor.constraint(equalToConstant: 320).isActive = true
         toleranceSlider = slider
 
         let maxLabel = NSTextField(labelWithString: "50%")
@@ -208,11 +260,133 @@ final class SmartFitAdvancedWindowController: NSWindowController {
         return container
     }
 
+    private func buildThreeLayoutPicker() -> NSView {
+        return buildLayoutPickerRow(
+            title: text(en: "3 windows", zh: "3 窗口布局"),
+            options: ThreeWindowLayout.allCases.map { option in
+                LayoutPickerOption(
+                    id: option.rawValue,
+                    title: language == .simplifiedChinese ? option.displayLabel.zh : option.displayLabel.en,
+                    frames: option.thumbnailFrames,
+                    isSelected: option == threeWindowLayout
+                )
+            },
+            action: { [weak self] id in
+                guard let self, let option = ThreeWindowLayout(rawValue: id) else { return }
+                self.threeWindowLayout = option
+                self.refreshLayoutSelections()
+                self.onThreeWindowLayoutChanged?(option)
+            },
+            registerButton: { [weak self] id, button in
+                if let option = ThreeWindowLayout(rawValue: id) {
+                    self?.threeLayoutButtons[option] = button
+                }
+            }
+        )
+    }
+
+    private func buildFourLayoutPicker() -> NSView {
+        return buildLayoutPickerRow(
+            title: text(en: "4 windows", zh: "4 窗口布局"),
+            options: FourWindowLayout.allCases.map { option in
+                LayoutPickerOption(
+                    id: option.rawValue,
+                    title: language == .simplifiedChinese ? option.displayLabel.zh : option.displayLabel.en,
+                    frames: option.thumbnailFrames,
+                    isSelected: option == fourWindowLayout
+                )
+            },
+            action: { [weak self] id in
+                guard let self, let option = FourWindowLayout(rawValue: id) else { return }
+                self.fourWindowLayout = option
+                self.refreshLayoutSelections()
+                self.onFourWindowLayoutChanged?(option)
+            },
+            registerButton: { [weak self] id, button in
+                if let option = FourWindowLayout(rawValue: id) {
+                    self?.fourLayoutButtons[option] = button
+                }
+            }
+        )
+    }
+
+    private func buildFiveLayoutPicker() -> NSView {
+        return buildLayoutPickerRow(
+            title: text(en: "5 windows", zh: "5 窗口布局"),
+            options: FiveWindowLayout.allCases.map { option in
+                LayoutPickerOption(
+                    id: option.rawValue,
+                    title: language == .simplifiedChinese ? option.displayLabel.zh : option.displayLabel.en,
+                    frames: option.thumbnailFrames,
+                    isSelected: option == fiveWindowLayout
+                )
+            },
+            action: { [weak self] id in
+                guard let self, let option = FiveWindowLayout(rawValue: id) else { return }
+                self.fiveWindowLayout = option
+                self.refreshLayoutSelections()
+                self.onFiveWindowLayoutChanged?(option)
+            },
+            registerButton: { [weak self] id, button in
+                if let option = FiveWindowLayout(rawValue: id) {
+                    self?.fiveLayoutButtons[option] = button
+                }
+            }
+        )
+    }
+
+    private func buildLayoutPickerRow(
+        title: String,
+        options: [LayoutPickerOption],
+        action: @escaping (String) -> Void,
+        registerButton: (String, LayoutThumbnailButton) -> Void
+    ) -> NSView {
+        let container = NSStackView()
+        container.orientation = .vertical
+        container.alignment = .leading
+        container.spacing = 6
+
+        let titleLabel = NSTextField(labelWithString: title)
+        titleLabel.font = .systemFont(ofSize: 13, weight: .medium)
+        container.addArrangedSubview(titleLabel)
+
+        let row = NSStackView()
+        row.orientation = .horizontal
+        row.alignment = .top
+        row.spacing = 12
+        for option in options {
+            let button = LayoutThumbnailButton(option: option)
+            button.onSelect = action
+            registerButton(option.id, button)
+            row.addArrangedSubview(button)
+        }
+        container.addArrangedSubview(row)
+        return container
+    }
+
+    private func refreshLayoutSelections() {
+        for (key, button) in threeLayoutButtons {
+            button.setSelected(key == threeWindowLayout)
+        }
+        for (key, button) in fourLayoutButtons {
+            button.setSelected(key == fourWindowLayout)
+        }
+        for (key, button) in fiveLayoutButtons {
+            button.setSelected(key == fiveWindowLayout)
+        }
+    }
+
+    private func sectionHeader(_ title: String) -> NSView {
+        let label = NSTextField(labelWithString: title)
+        label.font = .systemFont(ofSize: 14, weight: .semibold)
+        return label
+    }
+
     private func separatorView() -> NSView {
         let line = NSBox()
         line.boxType = .separator
         line.translatesAutoresizingMaskIntoConstraints = false
-        line.widthAnchor.constraint(equalToConstant: 472).isActive = true
+        line.widthAnchor.constraint(equalToConstant: 512).isActive = true
         return line
     }
 
@@ -246,5 +420,147 @@ final class SmartFitAdvancedWindowController: NSWindowController {
 
     @objc private func doneTapped() {
         window?.performClose(nil)
+    }
+}
+
+// MARK: - Layout thumbnail components
+
+struct LayoutPickerOption {
+    let id: String
+    let title: String
+    /// Normalized frames in 0..1 with top-left origin.
+    let frames: [CGRect]
+    let isSelected: Bool
+}
+
+final class LayoutThumbnailButton: NSView {
+    var onSelect: ((String) -> Void)?
+
+    private let optionID: String
+    private let frames: [CGRect]
+    private let titleLabel: NSTextField
+    private let thumbnailView: LayoutThumbnailView
+    private var isHovering = false
+
+    init(option: LayoutPickerOption) {
+        optionID = option.id
+        frames = option.frames
+        thumbnailView = LayoutThumbnailView(frames: option.frames)
+        titleLabel = NSTextField(labelWithString: option.title)
+        super.init(frame: .zero)
+        thumbnailView.isSelected = option.isSelected
+
+        thumbnailView.translatesAutoresizingMaskIntoConstraints = false
+        titleLabel.font = .systemFont(ofSize: 11, weight: .medium)
+        titleLabel.alignment = .center
+        titleLabel.translatesAutoresizingMaskIntoConstraints = false
+        titleLabel.preferredMaxLayoutWidth = 140
+        titleLabel.lineBreakMode = .byWordWrapping
+        titleLabel.maximumNumberOfLines = 2
+        titleLabel.textColor = option.isSelected ? .controlAccentColor : .labelColor
+
+        addSubview(thumbnailView)
+        addSubview(titleLabel)
+
+        NSLayoutConstraint.activate([
+            thumbnailView.topAnchor.constraint(equalTo: topAnchor),
+            thumbnailView.leadingAnchor.constraint(equalTo: leadingAnchor),
+            thumbnailView.trailingAnchor.constraint(equalTo: trailingAnchor),
+            thumbnailView.widthAnchor.constraint(equalToConstant: 140),
+            thumbnailView.heightAnchor.constraint(equalToConstant: 80),
+            titleLabel.topAnchor.constraint(equalTo: thumbnailView.bottomAnchor, constant: 4),
+            titleLabel.leadingAnchor.constraint(equalTo: leadingAnchor),
+            titleLabel.trailingAnchor.constraint(equalTo: trailingAnchor),
+            titleLabel.bottomAnchor.constraint(equalTo: bottomAnchor)
+        ])
+
+        let tracking = NSTrackingArea(rect: .zero, options: [.mouseEnteredAndExited, .activeInKeyWindow, .inVisibleRect], owner: self, userInfo: nil)
+        addTrackingArea(tracking)
+    }
+
+    @available(*, unavailable)
+    required init?(coder: NSCoder) {
+        nil
+    }
+
+    func setSelected(_ selected: Bool) {
+        thumbnailView.isSelected = selected
+        titleLabel.textColor = selected ? .controlAccentColor : .labelColor
+        thumbnailView.needsDisplay = true
+    }
+
+    override func mouseDown(with event: NSEvent) {
+        onSelect?(optionID)
+    }
+
+    override func mouseEntered(with event: NSEvent) {
+        isHovering = true
+        thumbnailView.isHovering = true
+        thumbnailView.needsDisplay = true
+    }
+
+    override func mouseExited(with event: NSEvent) {
+        isHovering = false
+        thumbnailView.isHovering = false
+        thumbnailView.needsDisplay = true
+    }
+}
+
+final class LayoutThumbnailView: NSView {
+    var frames: [CGRect]
+    var isSelected: Bool = false
+    var isHovering: Bool = false
+
+    init(frames: [CGRect]) {
+        self.frames = frames
+        super.init(frame: .zero)
+        wantsLayer = true
+    }
+
+    @available(*, unavailable)
+    required init?(coder: NSCoder) {
+        nil
+    }
+
+    override var isFlipped: Bool { true }
+
+    override func draw(_ dirtyRect: NSRect) {
+        super.draw(dirtyRect)
+
+        let bgColor: NSColor
+        if isSelected {
+            bgColor = NSColor.controlAccentColor.withAlphaComponent(0.15)
+        } else if isHovering {
+            bgColor = NSColor.controlBackgroundColor.blended(withFraction: 0.5, of: .systemGray) ?? .controlBackgroundColor
+        } else {
+            bgColor = .controlBackgroundColor
+        }
+
+        let bgPath = NSBezierPath(roundedRect: bounds.insetBy(dx: 0.5, dy: 0.5), xRadius: 6, yRadius: 6)
+        bgColor.setFill()
+        bgPath.fill()
+
+        let borderColor: NSColor = isSelected ? .controlAccentColor : NSColor.systemGray.withAlphaComponent(0.3)
+        borderColor.setStroke()
+        bgPath.lineWidth = isSelected ? 2 : 1
+        bgPath.stroke()
+
+        let inset: CGFloat = 8
+        let drawArea = bounds.insetBy(dx: inset, dy: inset)
+
+        let windowFill: NSColor = isSelected
+            ? NSColor.controlAccentColor.withAlphaComponent(0.65)
+            : NSColor.systemGray.withAlphaComponent(0.55)
+        windowFill.setFill()
+
+        for f in frames {
+            let rect = NSRect(
+                x: drawArea.minX + f.minX * drawArea.width,
+                y: drawArea.minY + f.minY * drawArea.height,
+                width: f.width * drawArea.width,
+                height: f.height * drawArea.height
+            ).insetBy(dx: 1.5, dy: 1.5)
+            NSBezierPath(roundedRect: rect, xRadius: 2, yRadius: 2).fill()
+        }
     }
 }

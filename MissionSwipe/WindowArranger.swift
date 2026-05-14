@@ -100,6 +100,9 @@ final class WindowArranger {
     var smartFitCapacityProfile: SmartFitCapacityProfile = .default
     var smartFitOverflowStrategy: SmartFitOverflowStrategy = .minimize
     var smartFitOverlapTolerance: Double = 0.06
+    var threeWindowLayout: ThreeWindowLayout = .primaryPlusTwo
+    var fourWindowLayout: FourWindowLayout = .grid2x2
+    var fiveWindowLayout: FiveWindowLayout = .threeOverTwoEqual
     var onSmartFitReport: ((SmartFitReport) -> Void)?
 
     private let permissionManager: AccessibilityPermissionManager
@@ -457,12 +460,19 @@ final class WindowArranger {
         }
 
         var outcome: ArrangeOutcome
-        if working.count == 3 {
+        switch working.count {
+        case 3:
             outcome = arrangeThreeWindows(working, inside: bounds)
-        } else if working.count >= 4 {
-            outcome = arrangeBalancedRows(working, inside: bounds)
-        } else {
-            outcome = arrangeSimpleGrid(working, inside: bounds)
+        case 4:
+            outcome = arrangeFourWindows(working, inside: bounds)
+        case 5:
+            outcome = arrangeFiveWindows(working, inside: bounds)
+        default:
+            if working.count >= 6 {
+                outcome = arrangeBalancedRows(working, inside: bounds)
+            } else {
+                outcome = arrangeSimpleGrid(working, inside: bounds)
+            }
         }
         outcome.minimizedCount += capacityMinimizedCount
         return outcome
@@ -719,6 +729,185 @@ final class WindowArranger {
         }
     }
 
+    private func arrangeFourWindows(_ windows: [ArrangeableWindow], inside bounds: CGRect) -> ArrangeOutcome {
+        switch fourWindowLayout {
+        case .grid2x2:
+            return arrangeBalancedRows(windows, inside: bounds)
+        case .primaryPlusThree:
+            return arrangePrimaryPlusN(windows, inside: bounds, secondaryCount: 3)
+        }
+    }
+
+    private func arrangeFiveWindows(_ windows: [ArrangeableWindow], inside bounds: CGRect) -> ArrangeOutcome {
+        switch fiveWindowLayout {
+        case .threeOverTwoEqual:
+            return arrangeBalancedRows(windows, inside: bounds)
+        case .leftTwoBigRightThreeSmall:
+            return arrangeFiveAsLeftTwoBigRightThreeSmall(windows, inside: bounds)
+        case .bottomTwoBigTopThreeSmall:
+            return arrangeFiveAsBottomTwoBigTopThreeSmall(windows, inside: bounds)
+        }
+    }
+
+    private func arrangeColumnsLayout(_ windows: [ArrangeableWindow], inside bounds: CGRect, columnCount: Int) -> ArrangeOutcome {
+        let gap: CGFloat = Constants.windowGap
+        let count = windows.count
+        guard count > 0, columnCount > 0 else {
+            return ArrangeOutcome()
+        }
+
+        let sorted = windows.sorted { lhs, rhs in
+            if abs(lhs.originalFrame.minX - rhs.originalFrame.minX) > 8 {
+                return lhs.originalFrame.minX < rhs.originalFrame.minX
+            }
+            return lhs.originalFrame.minY < rhs.originalFrame.minY
+        }
+
+        let columnWidth = floor((bounds.width - CGFloat(columnCount - 1) * gap) / CGFloat(columnCount))
+        var planned: [PlannedFrame] = []
+        for (index, window) in sorted.enumerated() {
+            let x = bounds.minX + CGFloat(index) * (columnWidth + gap)
+            let width = index == count - 1 ? bounds.maxX - x : columnWidth
+            let frame = CGRect(x: x, y: bounds.minY, width: width, height: bounds.height).integral
+            planned.append(PlannedFrame(window: window, frame: frame))
+        }
+
+        Logger.info("Auto arrange using \(columnCount)-column layout: count=\(count), columnWidth=\(columnWidth)")
+        return applyWithVerify(planned, inside: bounds, gap: gap)
+    }
+
+    private func arrangePrimaryPlusN(_ windows: [ArrangeableWindow], inside bounds: CGRect, secondaryCount: Int) -> ArrangeOutcome {
+        let gap: CGFloat = Constants.windowGap
+        guard let primary = windows.max(by: { lhs, rhs in
+            let lhsScore = primaryWindowScore(lhs)
+            let rhsScore = primaryWindowScore(rhs)
+            if abs(lhsScore - rhsScore) > 1 {
+                return lhsScore < rhsScore
+            }
+            return lhs.candidate.orderIndex > rhs.candidate.orderIndex
+        }) else {
+            return ArrangeOutcome()
+        }
+
+        let primaryWasOnRight = primary.originalFrame.midX >= bounds.midX
+        let primaryWidth = floor((bounds.width - gap) * 0.50)
+        let secondaryWidth = floor(bounds.width - gap - primaryWidth)
+
+        let primaryFrame: CGRect
+        let secondaryX: CGFloat
+        if primaryWasOnRight {
+            secondaryX = bounds.minX
+            primaryFrame = CGRect(
+                x: bounds.maxX - primaryWidth,
+                y: bounds.minY,
+                width: primaryWidth,
+                height: bounds.height
+            ).integral
+        } else {
+            secondaryX = bounds.minX + primaryWidth + gap
+            primaryFrame = CGRect(
+                x: bounds.minX,
+                y: bounds.minY,
+                width: primaryWidth,
+                height: bounds.height
+            ).integral
+        }
+
+        let secondaryWindows = windows
+            .filter { $0.candidate.windowID != primary.candidate.windowID }
+            .sorted {
+                if abs($0.originalFrame.minY - $1.originalFrame.minY) > 8 {
+                    return $0.originalFrame.minY < $1.originalFrame.minY
+                }
+                return $0.originalFrame.minX < $1.originalFrame.minX
+            }
+            .prefix(secondaryCount)
+
+        let secondaryRowHeight = floor((bounds.height - CGFloat(secondaryCount - 1) * gap) / CGFloat(secondaryCount))
+        var planned: [PlannedFrame] = [PlannedFrame(window: primary, frame: primaryFrame)]
+        for (rowIndex, window) in secondaryWindows.enumerated() {
+            let y = bounds.minY + CGFloat(rowIndex) * (secondaryRowHeight + gap)
+            let height = rowIndex == secondaryCount - 1 ? bounds.maxY - y : secondaryRowHeight
+            let frame = CGRect(x: secondaryX, y: y, width: secondaryWidth, height: height).integral
+            planned.append(PlannedFrame(window: window, frame: frame))
+        }
+
+        Logger.info("Auto arrange using 1+\(secondaryCount) layout: primaryOwner=\(primary.candidate.ownerName), primarySide=\(primaryWasOnRight ? "right" : "left")")
+        return applyWithVerify(planned, inside: bounds, gap: gap)
+    }
+
+    private func arrangeFiveAsLeftTwoBigRightThreeSmall(_ windows: [ArrangeableWindow], inside bounds: CGRect) -> ArrangeOutcome {
+        let gap: CGFloat = Constants.windowGap
+        // Two biggest windows go to the left column (stacked at half-height each);
+        // the remaining three smaller windows fill the right column.
+        let sortedByArea = windows.sorted {
+            ($0.originalFrame.width * $0.originalFrame.height) >
+            ($1.originalFrame.width * $1.originalFrame.height)
+        }
+        let leftWindows = Array(sortedByArea.prefix(2))
+        let rightWindows = Array(sortedByArea.suffix(from: 2).prefix(3))
+
+        let leftWidth = floor((bounds.width - gap) * 0.50)
+        let rightWidth = floor(bounds.width - gap - leftWidth)
+        let rightX = bounds.minX + leftWidth + gap
+
+        let leftCellHeight = floor((bounds.height - gap) / 2)
+        let rightCellHeight = floor((bounds.height - 2 * gap) / 3)
+
+        var planned: [PlannedFrame] = []
+        for (index, window) in leftWindows.enumerated() {
+            let y = bounds.minY + CGFloat(index) * (leftCellHeight + gap)
+            let height = index == leftWindows.count - 1 ? bounds.maxY - y : leftCellHeight
+            let frame = CGRect(x: bounds.minX, y: y, width: leftWidth, height: height).integral
+            planned.append(PlannedFrame(window: window, frame: frame))
+        }
+        for (index, window) in rightWindows.enumerated() {
+            let y = bounds.minY + CGFloat(index) * (rightCellHeight + gap)
+            let height = index == rightWindows.count - 1 ? bounds.maxY - y : rightCellHeight
+            let frame = CGRect(x: rightX, y: y, width: rightWidth, height: height).integral
+            planned.append(PlannedFrame(window: window, frame: frame))
+        }
+
+        Logger.info("Auto arrange using 5-window left-2-big-right-3-small layout")
+        return applyWithVerify(planned, inside: bounds, gap: gap)
+    }
+
+    private func arrangeFiveAsBottomTwoBigTopThreeSmall(_ windows: [ArrangeableWindow], inside bounds: CGRect) -> ArrangeOutcome {
+        let gap: CGFloat = Constants.windowGap
+        // Two biggest windows go to the bottom row (each 50% width, 60% height);
+        // the other three fill the top row (each 33% width, 40% height).
+        let sortedByArea = windows.sorted {
+            ($0.originalFrame.width * $0.originalFrame.height) >
+            ($1.originalFrame.width * $1.originalFrame.height)
+        }
+        let bottomWindows = Array(sortedByArea.prefix(2))
+        let topWindows = Array(sortedByArea.suffix(from: 2).prefix(3))
+
+        let topHeight = floor((bounds.height - gap) * 0.40)
+        let bottomHeight = floor(bounds.height - gap - topHeight)
+        let bottomY = bounds.minY + topHeight + gap
+
+        let topCellWidth = floor((bounds.width - 2 * gap) / 3)
+        let bottomCellWidth = floor((bounds.width - gap) / 2)
+
+        var planned: [PlannedFrame] = []
+        for (index, window) in topWindows.enumerated() {
+            let x = bounds.minX + CGFloat(index) * (topCellWidth + gap)
+            let width = index == topWindows.count - 1 ? bounds.maxX - x : topCellWidth
+            let frame = CGRect(x: x, y: bounds.minY, width: width, height: topHeight).integral
+            planned.append(PlannedFrame(window: window, frame: frame))
+        }
+        for (index, window) in bottomWindows.enumerated() {
+            let x = bounds.minX + CGFloat(index) * (bottomCellWidth + gap)
+            let width = index == bottomWindows.count - 1 ? bounds.maxX - x : bottomCellWidth
+            let frame = CGRect(x: x, y: bottomY, width: width, height: bottomHeight).integral
+            planned.append(PlannedFrame(window: window, frame: frame))
+        }
+
+        Logger.info("Auto arrange using 5-window bottom-2-big-top-3-small layout")
+        return applyWithVerify(planned, inside: bounds, gap: gap)
+    }
+
     private func arrangeBalancedRows(_ windows: [ArrangeableWindow], inside bounds: CGRect) -> ArrangeOutcome {
         let gap: CGFloat = Constants.windowGap
         let rowCounts = balancedRowCounts(for: windows.count)
@@ -780,6 +969,15 @@ final class WindowArranger {
     }
 
     private func arrangeThreeWindows(_ windows: [ArrangeableWindow], inside bounds: CGRect) -> ArrangeOutcome {
+        switch threeWindowLayout {
+        case .primaryPlusTwo:
+            return arrangeThreeWindowsPrimaryPlusTwo(windows, inside: bounds)
+        case .threeColumns:
+            return arrangeColumnsLayout(windows, inside: bounds, columnCount: 3)
+        }
+    }
+
+    private func arrangeThreeWindowsPrimaryPlusTwo(_ windows: [ArrangeableWindow], inside bounds: CGRect) -> ArrangeOutcome {
         let gap: CGFloat = Constants.windowGap
         guard let primary = windows.max(by: { lhs, rhs in
             let lhsScore = primaryWindowScore(lhs)
