@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+## 0.7.2
+
+- `arrangeThreeWindows` now uses a three equal-width columns layout (full-height each) instead of the old "1 big + 2 stacked" layout. The old layout asked the primary window for the full screen height, which Chrome (and several other apps) routinely refuse — that left the left half of the screen empty. Three columns make every window short-and-wide, which apps respect far more reliably and keeps the screen filled.
+- Stubborn detection now catches windows that refuse to *grow* as well as windows that refuse to *shrink*. A Chrome window that ignores a full-height target and stays at half-height is now identified and triggers the adaptive second pass.
+
 ## 0.7.1
 
 - Smart Fit no longer drops flexible windows when one neighbour is stubborn. The adaptive second pass used to treat each non-stubborn window's first-pass tile size as a hard pack width, so a single stubborn window (e.g. NetEase Music at 1056x752) could force every flexible Chrome alongside it to be minimized. Flexible windows are now packed using a smaller flex footprint (480x320) and stretched into the remaining row width afterwards.

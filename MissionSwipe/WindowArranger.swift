@@ -781,82 +781,32 @@ final class WindowArranger {
 
     private func arrangeThreeWindows(_ windows: [ArrangeableWindow], inside bounds: CGRect) -> ArrangeOutcome {
         let gap: CGFloat = Constants.windowGap
-        guard let primary = windows.max(by: { lhs, rhs in
-            let lhsScore = primaryWindowScore(lhs)
-            let rhsScore = primaryWindowScore(rhs)
-            if abs(lhsScore - rhsScore) > 1 {
-                return lhsScore < rhsScore
+
+        // 3 windows in three equal-width columns spanning the full height. The old
+        // "1 big + 2 stacked" layout required the primary window to honour full
+        // screen height, which Chrome (and several other apps) often refuse — that
+        // left the left half of the screen mostly empty. Three columns make every
+        // window short-and-wide, which apps respect far more reliably and keeps the
+        // arrangement filling the screen.
+        let sortedByX = windows.sorted { lhs, rhs in
+            if abs(lhs.originalFrame.minX - rhs.originalFrame.minX) > 8 {
+                return lhs.originalFrame.minX < rhs.originalFrame.minX
             }
-            return lhs.candidate.orderIndex > rhs.candidate.orderIndex
-        }) else {
-            return ArrangeOutcome()
+            return lhs.originalFrame.minY < rhs.originalFrame.minY
         }
 
-        let primaryWasOnRight = primary.originalFrame.midX >= bounds.midX
-        let primaryWidth = floor((bounds.width - gap) * 0.50)
-        let secondaryWidth = floor(bounds.width - gap - primaryWidth)
-        let secondaryHeight = floor((bounds.height - gap) / 2)
-
-        let primaryFrame: CGRect
-        let secondaryX: CGFloat
-        if primaryWasOnRight {
-            secondaryX = bounds.minX
-            primaryFrame = CGRect(
-                x: bounds.maxX - primaryWidth,
-                y: bounds.minY,
-                width: primaryWidth,
-                height: bounds.height
-            ).integral
-        } else {
-            secondaryX = bounds.minX + primaryWidth + gap
-            primaryFrame = CGRect(
-                x: bounds.minX,
-                y: bounds.minY,
-                width: primaryWidth,
-                height: bounds.height
-            ).integral
+        let columnWidth = floor((bounds.width - 2 * gap) / 3)
+        var planned: [PlannedFrame] = []
+        for (index, window) in sortedByX.enumerated() {
+            let x = bounds.minX + CGFloat(index) * (columnWidth + gap)
+            let width = index == sortedByX.count - 1 ? bounds.maxX - x : columnWidth
+            let frame = CGRect(x: x, y: bounds.minY, width: width, height: bounds.height).integral
+            planned.append(PlannedFrame(window: window, frame: frame))
         }
 
-        let secondaryWindows = windows
-            .filter { $0.candidate.windowID != primary.candidate.windowID }
-            .sorted {
-                if abs($0.originalFrame.minY - $1.originalFrame.minY) > 8 {
-                    return $0.originalFrame.minY < $1.originalFrame.minY
-                }
-                return $0.originalFrame.minX < $1.originalFrame.minX
-            }
+        Logger.info("Auto arrange using 3-column layout for 3 windows: columnWidth=\(columnWidth)")
 
-        let targetFrames = [
-            (primary, primaryFrame),
-            (
-                secondaryWindows[0],
-                CGRect(
-                    x: secondaryX,
-                    y: bounds.minY,
-                    width: secondaryWidth,
-                    height: secondaryHeight
-                ).integral
-            ),
-            (
-                secondaryWindows[1],
-                CGRect(
-                    x: secondaryX,
-                    y: bounds.minY + secondaryHeight + gap,
-                    width: secondaryWidth,
-                    height: bounds.height - secondaryHeight - gap
-                ).integral
-            )
-        ]
-
-        Logger.info(
-            "Auto arrange using 1+2 layout for 3 windows: primaryOwner=\(primary.candidate.ownerName), primaryTitle=\"\(primary.axWindow.title)\", primarySide=\(primaryWasOnRight ? "right" : "left")"
-        )
-
-        return applyWithVerify(
-            targetFrames.map { PlannedFrame(window: $0.0, frame: $0.1) },
-            inside: bounds,
-            gap: gap
-        )
+        return applyWithVerify(planned, inside: bounds, gap: gap)
     }
 
     private func applyAndMeasure(_ plannedFrames: [PlannedFrame]) -> [AppliedFrame] {
@@ -1020,8 +970,14 @@ final class WindowArranger {
         guard frame.didMove, let actual = frame.actual else {
             return true
         }
-        return actual.width > frame.target.width + Constants.stubbornSizeSlack ||
-            actual.height > frame.target.height + Constants.stubbornSizeSlack
+        // A window is "stubborn" whenever its actual size differs significantly from
+        // the target — both directions count. Apps that refuse to *shrink* below their
+        // minimum are the obvious case, but apps that refuse to *grow* to the target
+        // (Chrome often refuses full-height layouts and falls back to a half-height)
+        // also need the adaptive pass to react around the real size.
+        let widthDiff = abs(actual.width - frame.target.width)
+        let heightDiff = abs(actual.height - frame.target.height)
+        return widthDiff > Constants.stubbornSizeSlack || heightDiff > Constants.stubbornSizeSlack
     }
 
     private func framesHaveMeaningfulOverlap(_ frames: [CGRect]) -> Bool {
