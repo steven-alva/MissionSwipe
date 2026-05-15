@@ -39,7 +39,7 @@ final class WindowArranger {
 
     private enum Constants {
         static let missionControlExitRetryDelay: TimeInterval = 0.18
-        static let missionControlExitSettleDelay: TimeInterval = 0.45
+        static let missionControlExitSettleDelay: TimeInterval = 0.30
         static let maxMissionControlExitAttempts = 8
         // Settle delays between AX writes during setFrame. macOS dispatches AX
         // attribute writes to the target process; if a size write arrives before
@@ -55,7 +55,7 @@ final class WindowArranger {
         static let stubbornSizeSlack: CGFloat = 42
         static let overlapMinimumArea: CGFloat = 2_500
         static let smartFitMinWindowCount = 4
-        static let windowGap: CGFloat = 4
+        static let windowGap: CGFloat = 0
         static let stackPeekOffsetX: CGFloat = 48
         static let stackPeekOffsetY: CGFloat = 48
         static let stackPeekMinUsableWidth: CGFloat = 360
@@ -1087,7 +1087,7 @@ final class WindowArranger {
 
         let stubbornFrames = applied.filter { isStubborn($0) }
         let actualFrames = applied.compactMap(\.actual)
-        let hasOverlap = framesHaveMeaningfulOverlap(actualFrames)
+        let hasOverlap = framesHaveMeaningfulOverlap(actualFrames) || framesHaveVisibleEdgeOverlap(actualFrames)
 
         if stubbornFrames.isEmpty, !hasOverlap {
             return ArrangeOutcome(arrangedCount: applied.filter(\.didMove).count, minimizedCount: 0, stubbornCount: 0, adapted: false)
@@ -1123,7 +1123,8 @@ final class WindowArranger {
         if let frames = adaptiveLayout(effective, inside: bounds, gap: gap, maxColumns: maxColumns) {
             let secondPass = applyAndMeasure(frames)
             latestApplied = secondPass
-            let secondPassOverlap = framesHaveMeaningfulOverlap(secondPass.compactMap(\.actual))
+            let secondPassFrames = secondPass.compactMap(\.actual)
+            let secondPassOverlap = framesHaveMeaningfulOverlap(secondPassFrames) || framesHaveVisibleEdgeOverlap(secondPassFrames)
             if !secondPassOverlap {
                 var outcome = ArrangeOutcome()
                 outcome.stubbornCount = stubbornFrames.count
@@ -1165,7 +1166,8 @@ final class WindowArranger {
         }
 
         // Minimize strategy continues below: only drop when there's real overlap.
-        let latestOverlap = framesHaveMeaningfulOverlap(latestApplied.compactMap(\.actual))
+        let latestFrames = latestApplied.compactMap(\.actual)
+        let latestOverlap = framesHaveMeaningfulOverlap(latestFrames) || framesHaveVisibleEdgeOverlap(latestFrames)
         if !latestOverlap {
             Logger.info("Smart Fit: minimize strategy keeps first-pass placement — no overlap above tolerance (\(String(format: "%.0f", smartFitOverlapTolerance * 100))%)")
             var outcome = ArrangeOutcome()
@@ -1351,6 +1353,31 @@ final class WindowArranger {
                 let overlap = intersectionArea(lhs, rhs)
                 let smallerArea = max(1, min(lhs.width * lhs.height, rhs.width * rhs.height))
                 if overlap > Constants.overlapMinimumArea, overlap / smallerArea > ratioThreshold {
+                    return true
+                }
+            }
+        }
+        return false
+    }
+
+    private func framesHaveVisibleEdgeOverlap(_ frames: [CGRect]) -> Bool {
+        guard frames.count > 1 else {
+            return false
+        }
+
+        // Smart Fit's ratio threshold is useful for deciding when to sacrifice a
+        // window, but users still see thin edge collisions in exact tiling layouts.
+        // Treat a narrow-but-visible shared edge as needing one more adaptive pass.
+        let edgeThreshold: CGFloat = 8
+        for lhsIndex in frames.indices {
+            for rhsIndex in frames.indices where rhsIndex > lhsIndex {
+                let lhs = frames[lhsIndex]
+                let rhs = frames[rhsIndex]
+                let intersection = lhs.intersection(rhs)
+                guard !intersection.isNull, !intersection.isEmpty else {
+                    continue
+                }
+                if intersection.width >= edgeThreshold || intersection.height >= edgeThreshold {
                     return true
                 }
             }
@@ -1715,7 +1742,7 @@ final class WindowArranger {
         let candidate = visibleBounds.isNull || visibleBounds.isEmpty ? fullBounds : visibleBounds
         let boundedCandidate = candidate.intersection(fullBounds)
         let usableCandidate = boundedCandidate.isNull || boundedCandidate.isEmpty ? fullBounds : boundedCandidate
-        return usableCandidate.insetBy(dx: 8, dy: 8)
+        return usableCandidate
     }
 
     private func cgWindowRect(forVisibleFrame visibleFrame: CGRect, screenFrame: CGRect, cgFullBounds: CGRect) -> CGRect {
