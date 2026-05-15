@@ -7,6 +7,7 @@ final class DiagnosticsWindowController: NSWindowController {
     var onCopyLastActionReport: (() -> Void)?
     var onCaptureSceneSnapshot: (() -> Void)?
     var onRunLayoutCheck: (() -> Void)?
+    var onRunArrangeTest: (() -> Void)?
     var onDumpWindowList: (() -> Void)?
     var onDumpAXWindows: (() -> Void)?
     var onToggleMissionControlGestureProbe: ((Bool) -> Void)?
@@ -208,7 +209,19 @@ final class DiagnosticsWindowController: NSWindowController {
             action: #selector(runLayoutCheckTapped)
         )
         button.bezelStyle = .rounded
-        container.addArrangedSubview(button)
+
+        let testButton = NSButton(
+            title: text(en: "Run arrange test", zh: "运行排版测试"),
+            target: self,
+            action: #selector(runArrangeTestTapped)
+        )
+        testButton.bezelStyle = .rounded
+
+        let row = NSStackView(views: [button, testButton])
+        row.orientation = .horizontal
+        row.alignment = .centerY
+        row.spacing = 8
+        container.addArrangedSubview(row)
 
         return container
     }
@@ -408,6 +421,10 @@ final class DiagnosticsWindowController: NSWindowController {
 
     @objc private func runLayoutCheckTapped() {
         onRunLayoutCheck?()
+    }
+
+    @objc private func runArrangeTestTapped() {
+        onRunArrangeTest?()
     }
 
     @objc private func dumpCGTapped() {

@@ -11,6 +11,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         static let previewLayoutHUDUpdateInterval: TimeInterval = 1.0 / 30.0
         static let previewLayoutExitPollDelay: TimeInterval = 0.12
         static let previewLayoutExitSettleDelay: TimeInterval = 0.20
+        static let arrangeTestSettleDelay: TimeInterval = 1.2
+        static let arrangeTestLogLineCount = 160
     }
 
     private struct PreviewLayoutGestureCandidate {
@@ -259,6 +261,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             }
             controller.onRunLayoutCheck = { [weak self] in
                 self?.runLayoutCheck()
+            }
+            controller.onRunArrangeTest = { [weak self] in
+                self?.runArrangeTest()
             }
             controller.onDumpWindowList = { [weak self] in
                 self?.debugWindowDumper.dumpWindowList()
@@ -1043,6 +1048,106 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             ? "排版检测已复制 (\(lineCount) 行)"
             : "Layout check copied (\(lineCount) lines)"
         gestureHUD.show(message: message, progress: 1, kind: .success, duration: 1.6)
+    }
+
+    private func runArrangeTest() {
+        let zh = configuration.language == .simplifiedChinese
+        guard permissionManager.isAccessibilityTrusted else {
+            Logger.info("Arrange test cancelled: accessibility permission missing")
+            let message = zh ? "缺少辅助功能权限" : "Accessibility permission missing"
+            gestureHUD.show(message: message, progress: 0, kind: .warning, duration: 1.8)
+            refreshPermissionStatus(showPromptWhenMissing: false)
+            return
+        }
+
+        let startedAt = Date()
+        let testID = compactTimestamp(startedAt)
+        Logger.info("Arrange test started: id=\(testID), settleDelay=\(String(format: "%.2f", Constants.arrangeTestSettleDelay))s")
+        gestureHUD.show(message: zh ? "排版测试中" : "Testing arrange", progress: 0.35, kind: .progress, duration: Constants.arrangeTestSettleDelay)
+
+        windowArranger.arrangeVisibleWindows(trigger: "diagnostics arrange test \(testID)")
+
+        DispatchQueue.main.asyncAfter(deadline: .now() + Constants.arrangeTestSettleDelay) { [weak self] in
+            self?.finishArrangeTest(startedAt: startedAt, testID: testID)
+        }
+    }
+
+    private func finishArrangeTest(startedAt: Date, testID: String) {
+        let completedAt = Date()
+        let layoutReport = layoutDiagnosticCapture.capture()
+        let verdict = layoutVerdict(from: layoutReport)
+        let logTail = recentLogTail(lineCount: Constants.arrangeTestLogLineCount)
+        let report = [
+            "===== MissionSwipe Arrange Test =====",
+            "test_id: \(testID)",
+            "started_at: \(isoTimestamp(startedAt))",
+            "completed_at: \(isoTimestamp(completedAt))",
+            "elapsed_seconds: \(String(format: "%.2f", completedAt.timeIntervalSince(startedAt)))",
+            "settle_delay_seconds: \(String(format: "%.2f", Constants.arrangeTestSettleDelay))",
+            "layout_verdict: \(verdict)",
+            "",
+            "----- Layout Check After Arrange -----",
+            layoutReport,
+            "",
+            "----- Recent Log Tail -----",
+            logTail,
+            "===== End Arrange Test ====="
+        ].joined(separator: "\n")
+
+        NSPasteboard.general.clearContents()
+        NSPasteboard.general.setString(report, forType: .string)
+        let lineCount = report.split(separator: "\n", omittingEmptySubsequences: false).count
+        Logger.info("Arrange test finished: id=\(testID), verdict=\(verdict), copiedLines=\(lineCount)")
+        Logger.info("===== Arrange Test Begin =====\n\(report)\n===== Arrange Test End =====")
+
+        let zh = configuration.language == .simplifiedChinese
+        let message = zh
+            ? "排版测试已复制：\(verdict)"
+            : "Arrange test copied: \(verdict)"
+        let kind: GestureHUDController.Kind = verdict == "PASS" ? .success : .warning
+        gestureHUD.show(message: message, progress: verdict == "PASS" ? 1 : 0, kind: kind, duration: 1.8)
+        refreshPermissionStatus(showPromptWhenMissing: false)
+    }
+
+    private func layoutVerdict(from report: String) -> String {
+        for line in report.split(separator: "\n", omittingEmptySubsequences: false) {
+            let trimmed = line.trimmingCharacters(in: .whitespacesAndNewlines)
+            if trimmed.hasPrefix("verdict:") {
+                return trimmed
+                    .replacingOccurrences(of: "verdict:", with: "")
+                    .trimmingCharacters(in: .whitespacesAndNewlines)
+            }
+        }
+        return "UNKNOWN"
+    }
+
+    private func recentLogTail(lineCount: Int) -> String {
+        let logURL = FileManager.default.homeDirectoryForCurrentUser
+            .appendingPathComponent("Library", isDirectory: true)
+            .appendingPathComponent("Logs", isDirectory: true)
+            .appendingPathComponent("MissionSwipe", isDirectory: true)
+            .appendingPathComponent("MissionSwipe.log")
+
+        guard let raw = try? String(contentsOf: logURL, encoding: .utf8), !raw.isEmpty else {
+            return "(no log content)"
+        }
+
+        let lines = raw.split(separator: "\n", omittingEmptySubsequences: false)
+        return lines.suffix(max(1, lineCount)).joined(separator: "\n")
+    }
+
+    private func isoTimestamp(_ date: Date) -> String {
+        let formatter = ISO8601DateFormatter()
+        formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        return formatter.string(from: date)
+    }
+
+    private func compactTimestamp(_ date: Date) -> String {
+        let formatter = DateFormatter()
+        formatter.locale = Locale(identifier: "en_US_POSIX")
+        formatter.timeZone = TimeZone(secondsFromGMT: 0)
+        formatter.dateFormat = "yyyyMMddHHmmss"
+        return formatter.string(from: date)
     }
 
     private func copyRecentLog() {
