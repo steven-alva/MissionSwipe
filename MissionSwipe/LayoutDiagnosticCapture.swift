@@ -69,14 +69,17 @@ final class LayoutDiagnosticCapture {
         lines.append("")
     }
 
-    private func appendPIDCounts(_ counts: [(pid: pid_t, owner: String, cgVisible: Int, axTotal: Int, axNonMinimized: Int)], into lines: inout [String]) {
+    private func appendPIDCounts(
+        _ counts: [(pid: pid_t, owner: String, cgVisible: Int, axTotal: Int, axNonMinimized: Int, axMinimized: Int)],
+        into lines: inout [String]
+    ) {
         lines.append("----- PID Window Counts -----")
         if counts.isEmpty {
             lines.append("(none)")
         } else {
             for count in counts {
                 let hidden = max(0, count.axNonMinimized - count.cgVisible)
-                lines.append("pid=\(count.pid) owner=\"\(count.owner)\" cg_visible=\(count.cgVisible) ax_total=\(count.axTotal) ax_non_minimized=\(count.axNonMinimized) hidden_or_unmatched=\(hidden)")
+                lines.append("pid=\(count.pid) owner=\"\(count.owner)\" cg_visible=\(count.cgVisible) ax_total=\(count.axTotal) ax_non_minimized=\(count.axNonMinimized) ax_minimized=\(count.axMinimized) hidden_or_unmatched=\(hidden)")
             }
         }
         lines.append("")
@@ -150,13 +153,16 @@ final class LayoutDiagnosticCapture {
     private func appendVerdict(
         windows: [WindowInfo],
         displays: [DisplayInfo],
-        pidCounts: [(pid: pid_t, owner: String, cgVisible: Int, axTotal: Int, axNonMinimized: Int)],
+        pidCounts: [(pid: pid_t, owner: String, cgVisible: Int, axTotal: Int, axNonMinimized: Int, axMinimized: Int)],
         into lines: inout [String]
     ) {
         let overlapCount = overlapPairs(windows).count
         let overflowCount = windows.filter { !overflowDescription(frame: $0.frame, bounds: displayFor(frame: $0.frame, displays: displays).visibleBounds).isEmpty }.count
         let hiddenCount = pidCounts.reduce(0) { total, count in
             total + max(0, count.axNonMinimized - count.cgVisible)
+        }
+        let minimizedCount = pidCounts.reduce(0) { total, count in
+            total + count.axMinimized
         }
         let lowCoverageCount = displays.filter { display in
             let displayWindows = windows.filter { display.visibleBounds.intersects($0.frame) }
@@ -168,7 +174,7 @@ final class LayoutDiagnosticCapture {
         lines.append("----- Verdict -----")
         if overflowCount > 0 || overlapCount > 0 {
             lines.append("verdict: FAIL")
-        } else if hiddenCount > 0 || lowCoverageCount > 0 {
+        } else if hiddenCount > 0 || minimizedCount > 0 || lowCoverageCount > 0 {
             lines.append("verdict: WARN")
         } else {
             lines.append("verdict: PASS")
@@ -176,6 +182,7 @@ final class LayoutDiagnosticCapture {
         lines.append("overlap_pairs: \(overlapCount)")
         lines.append("overflow_windows: \(overflowCount)")
         lines.append("hidden_or_unmatched_ax_windows: \(hiddenCount)")
+        lines.append("minimized_ax_windows: \(minimizedCount)")
         lines.append("low_coverage_displays: \(lowCoverageCount)")
         lines.append("===== End Layout Check =====")
     }
@@ -207,17 +214,19 @@ final class LayoutDiagnosticCapture {
         return result
     }
 
-    private func collectPIDCounts(candidates: [CGWindowCandidate]) -> [(pid: pid_t, owner: String, cgVisible: Int, axTotal: Int, axNonMinimized: Int)] {
+    private func collectPIDCounts(candidates: [CGWindowCandidate]) -> [(pid: pid_t, owner: String, cgVisible: Int, axTotal: Int, axNonMinimized: Int, axMinimized: Int)] {
         let grouped = Dictionary(grouping: candidates, by: \.ownerPID)
         return grouped.keys.sorted().map { pid in
             let axWindows = axWindowController.windows(forPID: pid)
             let nonMinimized = axWindows.filter { boolAttribute($0.element, kAXMinimizedAttribute as CFString) != true }.count
+            let minimized = axWindows.filter { boolAttribute($0.element, kAXMinimizedAttribute as CFString) == true }.count
             return (
                 pid: pid,
                 owner: grouped[pid]?.first?.ownerName ?? "",
                 cgVisible: grouped[pid]?.count ?? 0,
                 axTotal: axWindows.count,
-                axNonMinimized: nonMinimized
+                axNonMinimized: nonMinimized,
+                axMinimized: minimized
             )
         }
     }

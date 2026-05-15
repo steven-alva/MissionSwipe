@@ -1087,9 +1087,20 @@ final class WindowArranger {
 
         let stubbornFrames = applied.filter { isStubborn($0) }
         let actualFrames = applied.compactMap(\.actual)
-        let hasConflict = framesHaveMeaningfulOverlap(actualFrames) ||
-            framesHaveVisibleEdgeOverlap(actualFrames) ||
-            framesOverflowBounds(actualFrames, inside: bounds)
+        let hasMeaningfulOverlap = framesHaveMeaningfulOverlap(actualFrames)
+        let hasVisibleEdgeOverlap = framesHaveVisibleEdgeOverlap(actualFrames)
+        let hasOverflow = framesOverflowBounds(actualFrames, inside: bounds)
+        let hasConflict = hasMeaningfulOverlap || hasVisibleEdgeOverlap || hasOverflow
+
+        if plannedFrames.count <= 4, !hasMeaningfulOverlap, !hasOverflow {
+            Logger.info("Smart Fit: preserving small-window layout without adaptive minimize. count=\(plannedFrames.count), stubborn=\(stubbornFrames.count), edgeOverlap=\(hasVisibleEdgeOverlap)")
+            return ArrangeOutcome(
+                arrangedCount: applied.filter(\.didMove).count,
+                minimizedCount: 0,
+                stubbornCount: stubbornFrames.count,
+                adapted: false
+            )
+        }
 
         if stubbornFrames.isEmpty, !hasConflict {
             return ArrangeOutcome(arrangedCount: applied.filter(\.didMove).count, minimizedCount: 0, stubbornCount: 0, adapted: false)
