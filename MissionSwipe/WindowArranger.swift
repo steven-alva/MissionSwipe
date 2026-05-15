@@ -56,6 +56,7 @@ final class WindowArranger {
         static let stubbornSizeSlack: CGFloat = 42
         static let edgeAlignmentSlack: CGFloat = 3
         static let overlapMinimumArea: CGFloat = 2_500
+        static let maxAdaptiveMinimizeCount = 1
         static let smartFitMinWindowCount = 4
         static let windowGap: CGFloat = 8
         static let stackPeekOffsetX: CGFloat = 48
@@ -1239,11 +1240,13 @@ final class WindowArranger {
             return outcome
         }
 
-        // We have real overlap. Drop the least-recently-used window and retry, up to 3 attempts.
+        // We have real overlap. Drop conservatively: this is a layout assist, not a
+        // window cleaner. If one drop is not enough, keep the best visible layout
+        // instead of collapsing the desktop to two windows.
         var droppedToMinimize: [ArrangeableWindow] = []
         var verifiedApplied: [AppliedFrame]?
 
-        for attempt in 1...3 {
+        for attempt in 1...Constants.maxAdaptiveMinimizeCount {
             guard let dropIndex = chooseDropIndex(effective) else {
                 break
             }
@@ -1259,20 +1262,26 @@ final class WindowArranger {
                     Logger.info("Smart Fit adaptive layout verified after dropping \(attempt) window(s)")
                     break
                 }
-                Logger.info("Smart Fit adaptive layout still conflicts after dropping \(attempt) window(s); trying another drop")
+                Logger.info("Smart Fit adaptive layout still conflicts after dropping \(attempt) window(s); stopping conservative minimize fallback")
             }
         }
 
         var outcome = ArrangeOutcome()
         outcome.stubbornCount = stubbornFrames.count
         outcome.adapted = true
-        outcome.arrangedCount = (verifiedApplied ?? latestApplied).filter(\.didMove).count
 
-        for window in droppedToMinimize {
-            Logger.info("Smart Fit adaptive minimize: owner=\(window.candidate.ownerName), title=\"\(window.axWindow.title)\"")
-            if setMinimized(true, for: window.axWindow.element) {
-                outcome.minimizedCount += 1
+        if let verifiedApplied {
+            outcome.arrangedCount = verifiedApplied.filter(\.didMove).count
+            for window in droppedToMinimize {
+                Logger.info("Smart Fit adaptive minimize: owner=\(window.candidate.ownerName), title=\"\(window.axWindow.title)\"")
+                if setMinimized(true, for: window.axWindow.element) {
+                    outcome.minimizedCount += 1
+                }
             }
+        } else {
+            Logger.info("Smart Fit adaptive minimize stopped without verified layout; restoring all-window placement and minimizing none")
+            let restored = applyAndMeasure(plannedFrames)
+            outcome.arrangedCount = restored.filter(\.didMove).count
         }
 
         return outcome
