@@ -50,6 +50,7 @@ final class WindowArranger {
         // window to the new display, which can take an extra frame.
         static let sameDisplaySettleDelay: TimeInterval = 0.02
         static let sameDisplayVerifyDelay: TimeInterval = 0.03
+        static let postArrangeVerifyDelay: TimeInterval = 0.12
         static let crossDisplaySettleDelay: TimeInterval = 0.06
         static let crossDisplaySizeSettleDelay: TimeInterval = 0.04
         static let stubbornSizeSlack: CGFloat = 42
@@ -1069,13 +1070,58 @@ final class WindowArranger {
     }
 
     private func applyAndMeasure(_ plannedFrames: [PlannedFrame]) -> [AppliedFrame] {
-        plannedFrames.map { plannedFrame in
+        var applied = plannedFrames.map { plannedFrame in
             let window = plannedFrame.window
             Logger.info("Auto arrange target: owner=\(window.candidate.ownerName), title=\"\(window.axWindow.title)\", frame=\(plannedFrame.frame)")
             let didMove = setFrame(plannedFrame.frame, for: window.axWindow.element)
             let actual = currentFrame(for: window.axWindow.element)?.integral
             return AppliedFrame(window: window, target: plannedFrame.frame, actual: actual, didMove: didMove)
         }
+
+        pumpRunLoop(forSeconds: Constants.postArrangeVerifyDelay)
+        applied = applied.map { appliedFrame in
+            AppliedFrame(
+                window: appliedFrame.window,
+                target: appliedFrame.target,
+                actual: currentFrame(for: appliedFrame.window.axWindow.element)?.integral,
+                didMove: appliedFrame.didMove
+            )
+        }
+
+        let underfilled = applied.filter { isTargetUnderfilled($0) }
+        if !underfilled.isEmpty {
+            Logger.info("Post-arrange underfill detected: count=\(underfilled.count); retrying target frames")
+            for frame in underfilled {
+                Logger.info("Post-arrange underfill retry: owner=\(frame.window.candidate.ownerName), title=\"\(frame.window.axWindow.title)\", target=\(frame.target.integral), actual=\(frame.actual?.integral.debugDescription ?? "nil")")
+                _ = setFrame(frame.target, for: frame.window.axWindow.element)
+            }
+
+            pumpRunLoop(forSeconds: Constants.postArrangeVerifyDelay)
+            applied = applied.map { appliedFrame in
+                AppliedFrame(
+                    window: appliedFrame.window,
+                    target: appliedFrame.target,
+                    actual: currentFrame(for: appliedFrame.window.axWindow.element)?.integral,
+                    didMove: appliedFrame.didMove
+                )
+            }
+
+            for frame in applied where isTargetUnderfilled(frame) {
+                anchorUnderfilledWindowIntoTarget(frame)
+            }
+
+            pumpRunLoop(forSeconds: Constants.sameDisplayVerifyDelay)
+            applied = applied.map { appliedFrame in
+                AppliedFrame(
+                    window: appliedFrame.window,
+                    target: appliedFrame.target,
+                    actual: currentFrame(for: appliedFrame.window.axWindow.element)?.integral,
+                    didMove: appliedFrame.didMove
+                )
+            }
+        }
+
+        return applied
     }
 
     private func applyWithVerify(_ plannedFrames: [PlannedFrame], inside bounds: CGRect, gap: CGFloat, allowMinimization: Bool = true) -> ArrangeOutcome {
@@ -1228,6 +1274,59 @@ final class WindowArranger {
         }
 
         return outcome
+    }
+
+    private func isTargetUnderfilled(_ frame: AppliedFrame) -> Bool {
+        guard frame.didMove, let actual = frame.actual else {
+            return false
+        }
+
+        return actual.width < frame.target.width - Constants.stubbornSizeSlack ||
+            actual.height < frame.target.height - Constants.stubbornSizeSlack
+    }
+
+    private func anchorUnderfilledWindowIntoTarget(_ frame: AppliedFrame) {
+        guard let actual = frame.actual else {
+            return
+        }
+
+        let target = frame.target
+        var anchoredOrigin = actual.origin
+
+        if actual.width < target.width - Constants.stubbornSizeSlack {
+            if target.midX >= targetDisplayBounds(for: target).midX {
+                anchoredOrigin.x = target.maxX - actual.width
+            } else {
+                anchoredOrigin.x = target.minX
+            }
+        }
+
+        if actual.height < target.height - Constants.stubbornSizeSlack {
+            if target.midY >= targetDisplayBounds(for: target).midY {
+                anchoredOrigin.y = target.maxY - actual.height
+            } else {
+                anchoredOrigin.y = target.minY
+            }
+        }
+
+        guard abs(anchoredOrigin.x - actual.minX) > 1 || abs(anchoredOrigin.y - actual.minY) > 1 else {
+            return
+        }
+
+        var position = anchoredOrigin
+        guard let positionValue = AXValueCreate(.cgPoint, &position) else {
+            return
+        }
+
+        Logger.info("Anchoring underfilled window into target cell: owner=\(frame.window.candidate.ownerName), title=\"\(frame.window.axWindow.title)\", target=\(target.integral), actual=\(actual.integral), anchoredOrigin=\(anchoredOrigin)")
+        let result = AXUIElementSetAttributeValue(frame.window.axWindow.element, kAXPositionAttribute as CFString, positionValue)
+        if result != .success {
+            Logger.warning("Failed to anchor underfilled window. error=\(result.rawValue)")
+        }
+    }
+
+    private func targetDisplayBounds(for target: CGRect) -> CGRect {
+        usableDisplayBounds(containing: target)
     }
 
     private func maximumColumns(in plannedFrames: [PlannedFrame]) -> Int? {
