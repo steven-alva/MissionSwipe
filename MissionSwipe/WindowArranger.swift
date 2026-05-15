@@ -54,6 +54,7 @@ final class WindowArranger {
         static let crossDisplaySettleDelay: TimeInterval = 0.06
         static let crossDisplaySizeSettleDelay: TimeInterval = 0.04
         static let stubbornSizeSlack: CGFloat = 42
+        static let edgeAlignmentSlack: CGFloat = 3
         static let overlapMinimumArea: CGFloat = 2_500
         static let smartFitMinWindowCount = 4
         static let windowGap: CGFloat = 8
@@ -1089,8 +1090,9 @@ final class WindowArranger {
         }
 
         let underfilled = applied.filter { isTargetUnderfilled($0) }
-        if !underfilled.isEmpty {
-            Logger.info("Post-arrange underfill detected: count=\(underfilled.count); retrying target frames")
+        let edgeMisaligned = applied.filter { needsTargetEdgeAlignment($0) }
+        if !underfilled.isEmpty || !edgeMisaligned.isEmpty {
+            Logger.info("Post-arrange alignment check: underfilled=\(underfilled.count), edgeMisaligned=\(edgeMisaligned.count)")
             for frame in underfilled {
                 Logger.info("Post-arrange underfill retry: owner=\(frame.window.candidate.ownerName), title=\"\(frame.window.axWindow.title)\", target=\(frame.target.integral), actual=\(frame.actual?.integral.debugDescription ?? "nil")")
                 _ = setFrame(frame.target, for: frame.window.axWindow.element)
@@ -1106,7 +1108,7 @@ final class WindowArranger {
                 )
             }
 
-            for frame in applied where isTargetUnderfilled(frame) {
+            for frame in applied where needsTargetEdgeAlignment(frame) {
                 anchorUnderfilledWindowIntoTarget(frame)
             }
 
@@ -1285,24 +1287,35 @@ final class WindowArranger {
             actual.height < frame.target.height - Constants.stubbornSizeSlack
     }
 
+    private func needsTargetEdgeAlignment(_ frame: AppliedFrame) -> Bool {
+        guard frame.didMove, let actual = frame.actual else {
+            return false
+        }
+
+        return isTargetUnderfilled(frame) ||
+            abs(actual.maxX - frame.target.maxX) > Constants.edgeAlignmentSlack ||
+            abs(actual.maxY - frame.target.maxY) > Constants.edgeAlignmentSlack
+    }
+
     private func anchorUnderfilledWindowIntoTarget(_ frame: AppliedFrame) {
         guard let actual = frame.actual else {
             return
         }
 
         let target = frame.target
+        let targetBounds = targetDisplayBounds(for: target)
         var anchoredOrigin = actual.origin
 
-        if actual.width < target.width - Constants.stubbornSizeSlack {
-            if target.midX >= targetDisplayBounds(for: target).midX {
+        if actual.width < target.width - Constants.edgeAlignmentSlack {
+            if target.midX >= targetBounds.midX {
                 anchoredOrigin.x = target.maxX - actual.width
             } else {
                 anchoredOrigin.x = target.minX
             }
         }
 
-        if actual.height < target.height - Constants.stubbornSizeSlack {
-            if target.midY >= targetDisplayBounds(for: target).midY {
+        if actual.height < target.height - Constants.edgeAlignmentSlack {
+            if target.midY >= targetBounds.midY {
                 anchoredOrigin.y = target.maxY - actual.height
             } else {
                 anchoredOrigin.y = target.minY
