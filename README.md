@@ -2,7 +2,7 @@
 
 MissionSwipe is a macOS AppKit menu bar app. It is gesture-first: open Mission Control, then close, minimize, or rearrange windows with trackpad swipes. The product boundary is intentionally narrow — MissionSwipe only acts when Mission Control is active, so normal desktop scrolling and clicking are untouched.
 
-## Current version: 0.7.6
+## Current version: 0.7.8
 
 0.7.0 introduces Smart Fit, a screen-size-aware tiling engine with three overflow strategies (minimize, tolerate overlap, stack with peek) and a per-screen capacity profile. The global hotkey from earlier MVPs has been retired in favour of the gesture-only product direction.
 
@@ -41,13 +41,21 @@ Download the latest `MissionSwipe-*-macos.zip` from GitHub Releases, unzip it, a
 
 The current public build is signed when a local Apple Development identity is available, but it is not notarized yet. On first launch, macOS may show an unidentified developer warning. Use right click > Open once, then grant Accessibility permission when prompted.
 
-Terminal install/update:
+Stable terminal install/update:
 
 ```bash
 curl -fsSL https://github.com/steven-alva/MissionSwipe/raw/refs/heads/main/scripts/install_latest.sh | bash
 ```
 
 The command always installs the latest GitHub release. If MissionSwipe is already installed, it updates that copy in place and removes duplicate `MissionSwipe.app` copies where possible. For new installs, it uses `/Applications`, falls back to `~/Applications` if needed, and opens MissionSwipe after installation.
+
+Beta terminal install/update:
+
+```bash
+curl -fsSL https://github.com/steven-alva/MissionSwipe/raw/refs/heads/main/scripts/install_beta.sh | bash
+```
+
+The beta command installs the prerelease asset from the fixed `beta` release tag. It still installs to the same `MissionSwipe.app` path and uses the same bundle identifier, so it replaces the current app instead of creating a second copy or a second Accessibility permission row. Use beta for friend-machine debugging and promote to stable only after validation.
 
 ## Build the app locally
 
@@ -60,13 +68,21 @@ scripts/build_app.sh
 This creates:
 
 - `dist/MissionSwipe.app`
-- `dist/MissionSwipe-0.7.6-macos.zip`
+- `dist/MissionSwipe-0.7.8-macos.zip`
 
 The script builds a universal app for Apple Silicon and Intel Macs by default. For a faster local-only build, run:
 
 ```bash
 BUILD_UNIVERSAL=0 scripts/build_app.sh
 ```
+
+For beta packaging, run:
+
+```bash
+scripts/build_beta.sh
+```
+
+This also creates `dist/MissionSwipe-beta-macos.zip`, the fixed asset consumed by `scripts/install_beta.sh`.
 
 ## How to run in Xcode
 

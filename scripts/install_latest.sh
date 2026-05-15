@@ -7,6 +7,8 @@ BUNDLE_ID="io.github.stevenalva.MissionSwipe"
 PREFERRED_INSTALL_DIR="${MISSION_SWIPE_INSTALL_DIR:-/Applications}"
 OPEN_AFTER_INSTALL="${MISSION_SWIPE_OPEN:-1}"
 CLEAN_DUPLICATES="${MISSION_SWIPE_CLEAN_DUPLICATES:-1}"
+RELEASE_TAG="${MISSION_SWIPE_RELEASE_TAG:-}"
+ASSET_NAME="${MISSION_SWIPE_ASSET_NAME:-}"
 
 log() {
   printf '[MissionSwipe installer] %s\n' "$*"
@@ -147,25 +149,33 @@ remove_duplicate_apps() {
   done
 }
 
-LATEST_RELEASE_URL="https://github.com/$REPO/releases/latest"
 TMP_DIR="$(mktemp -d "${TMPDIR:-/tmp}/missionswipe-install.XXXXXX")"
 trap 'rm -rf "$TMP_DIR"' EXIT
 
-log "Checking latest release from https://github.com/$REPO"
-resolved_latest_url="$(curl -fsSL -o /dev/null -w '%{url_effective}' "$LATEST_RELEASE_URL")"
-tag_name="${resolved_latest_url##*/}"
+if [[ -n "$RELEASE_TAG" ]]; then
+  tag_name="$RELEASE_TAG"
+  log "Checking release $tag_name from https://github.com/$REPO"
+else
+  LATEST_RELEASE_URL="https://github.com/$REPO/releases/latest"
+  log "Checking latest release from https://github.com/$REPO"
+  resolved_latest_url="$(curl -fsSL -o /dev/null -w '%{url_effective}' "$LATEST_RELEASE_URL")"
+  tag_name="${resolved_latest_url##*/}"
+fi
 
-[[ -n "$tag_name" ]] || fail "Could not read latest release tag"
-[[ "$tag_name" == v* ]] || fail "Could not resolve a version tag from $LATEST_RELEASE_URL"
+[[ -n "$tag_name" ]] || fail "Could not read release tag"
+if [[ -z "$RELEASE_TAG" && "$tag_name" != v* ]]; then
+  fail "Could not resolve a version tag from $LATEST_RELEASE_URL"
+fi
 
 version="${tag_name#v}"
-download_url="https://github.com/$REPO/releases/download/$tag_name/$APP_NAME-$version-macos.zip"
+asset_name="${ASSET_NAME:-$APP_NAME-$version-macos.zip}"
+download_url="https://github.com/$REPO/releases/download/$tag_name/$asset_name"
 
 zip_path="$TMP_DIR/$APP_NAME.zip"
 extract_dir="$TMP_DIR/extract"
 mkdir -p "$extract_dir"
 
-log "Downloading $tag_name"
+log "Downloading $tag_name ($asset_name)"
 curl -fL --progress-bar -o "$zip_path" "$download_url"
 
 log "Extracting app"
