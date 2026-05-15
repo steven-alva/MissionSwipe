@@ -55,7 +55,7 @@ final class WindowArranger {
         static let stubbornSizeSlack: CGFloat = 42
         static let overlapMinimumArea: CGFloat = 2_500
         static let smartFitMinWindowCount = 4
-        static let windowGap: CGFloat = 0
+        static let windowGap: CGFloat = 8
         static let stackPeekOffsetX: CGFloat = 48
         static let stackPeekOffsetY: CGFloat = 48
         static let stackPeekMinUsableWidth: CGFloat = 360
