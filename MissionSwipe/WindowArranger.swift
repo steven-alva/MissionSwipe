@@ -1092,7 +1092,7 @@ final class WindowArranger {
         let hasOverflow = framesOverflowBounds(actualFrames, inside: bounds)
         let hasConflict = hasMeaningfulOverlap || hasVisibleEdgeOverlap || hasOverflow
 
-        if plannedFrames.count <= 4, !hasMeaningfulOverlap, !hasOverflow {
+        if plannedFrames.count <= 4, !hasMeaningfulOverlap, !hasVisibleEdgeOverlap, !hasOverflow {
             Logger.info("Smart Fit: preserving small-window layout without adaptive minimize. count=\(plannedFrames.count), stubborn=\(stubbornFrames.count), edgeOverlap=\(hasVisibleEdgeOverlap)")
             return ArrangeOutcome(
                 arrangedCount: applied.filter(\.didMove).count,
@@ -1112,7 +1112,8 @@ final class WindowArranger {
             Logger.info("Smart Fit stubborn detail: owner=\(stubborn.window.candidate.ownerName), title=\"\(stubborn.window.axWindow.title)\", target=\(stubborn.target.integral), actual=\(actualText), didMove=\(stubborn.didMove)")
         }
 
-        var effective = applied.map { effectiveWindow(for: $0, inside: bounds) }
+        let forceActualMinimums = hasVisibleEdgeOverlap || hasOverflow
+        var effective = applied.map { effectiveWindow(for: $0, inside: bounds, forceActualMinimum: forceActualMinimums) }
         let maxColumns = maximumColumns(in: plannedFrames)
 
         // Primary-placement path: the user explicitly picked one window as primary and
@@ -1137,9 +1138,7 @@ final class WindowArranger {
             let secondPass = applyAndMeasure(frames)
             latestApplied = secondPass
             let secondPassFrames = secondPass.compactMap(\.actual)
-            let secondPassConflict = framesHaveMeaningfulOverlap(secondPassFrames) ||
-                framesHaveVisibleEdgeOverlap(secondPassFrames) ||
-                framesOverflowBounds(secondPassFrames, inside: bounds)
+            let secondPassConflict = framesHaveConflict(secondPassFrames, inside: bounds)
             if !secondPassConflict {
                 var outcome = ArrangeOutcome()
                 outcome.stubbornCount = stubbornFrames.count
@@ -1182,9 +1181,7 @@ final class WindowArranger {
 
         // Minimize strategy continues below: only drop when there's real overlap.
         let latestFrames = latestApplied.compactMap(\.actual)
-        let latestConflict = framesHaveMeaningfulOverlap(latestFrames) ||
-            framesHaveVisibleEdgeOverlap(latestFrames) ||
-            framesOverflowBounds(latestFrames, inside: bounds)
+        let latestConflict = framesHaveConflict(latestFrames, inside: bounds)
         if !latestConflict {
             Logger.info("Smart Fit: minimize strategy keeps latest placement — no visible conflict")
             var outcome = ArrangeOutcome()
@@ -1196,7 +1193,7 @@ final class WindowArranger {
 
         // We have real overlap. Drop the least-recently-used window and retry, up to 3 attempts.
         var droppedToMinimize: [ArrangeableWindow] = []
-        var adaptiveFrames: [PlannedFrame]?
+        var verifiedApplied: [AppliedFrame]?
 
         for attempt in 1...3 {
             guard let dropIndex = chooseDropIndex(effective) else {
@@ -1206,22 +1203,22 @@ final class WindowArranger {
             droppedToMinimize.append(dropped.window)
             Logger.info("Smart Fit dropping window to retry adaptive layout (attempt \(attempt)): owner=\(dropped.window.candidate.ownerName), title=\"\(dropped.window.axWindow.title)\"")
             if let frames = adaptiveLayout(effective, inside: bounds, gap: gap, maxColumns: maxColumns) {
-                adaptiveFrames = frames
-                Logger.info("Smart Fit adaptive layout succeeded after dropping \(attempt) window(s)")
-                break
+                let pass = applyAndMeasure(frames)
+                latestApplied = pass
+                let passFrames = pass.compactMap(\.actual)
+                if !framesHaveConflict(passFrames, inside: bounds) {
+                    verifiedApplied = pass
+                    Logger.info("Smart Fit adaptive layout verified after dropping \(attempt) window(s)")
+                    break
+                }
+                Logger.info("Smart Fit adaptive layout still conflicts after dropping \(attempt) window(s); trying another drop")
             }
         }
 
         var outcome = ArrangeOutcome()
         outcome.stubbornCount = stubbornFrames.count
         outcome.adapted = true
-
-        if let adaptiveFrames {
-            let secondPass = applyAndMeasure(adaptiveFrames)
-            outcome.arrangedCount = secondPass.filter(\.didMove).count
-        } else {
-            outcome.arrangedCount = latestApplied.filter(\.didMove).count
-        }
+        outcome.arrangedCount = (verifiedApplied ?? latestApplied).filter(\.didMove).count
 
         for window in droppedToMinimize {
             Logger.info("Smart Fit adaptive minimize: owner=\(window.candidate.ownerName), title=\"\(window.axWindow.title)\"")
@@ -1256,10 +1253,19 @@ final class WindowArranger {
         return maxCount
     }
 
-    private func effectiveWindow(for frame: AppliedFrame, inside bounds: CGRect) -> EffectiveWindow {
+    private func effectiveWindow(
+        for frame: AppliedFrame,
+        inside bounds: CGRect,
+        forceActualMinimum: Bool = false
+    ) -> EffectiveWindow {
         let stubborn = isStubborn(frame)
         let size: CGSize
-        if stubborn {
+        if forceActualMinimum, let actual = frame.actual {
+            size = CGSize(
+                width: max(Constants.flexibleMinPackWidth, actual.width),
+                height: max(Constants.flexibleMinPackHeight, actual.height)
+            )
+        } else if stubborn {
             size = conservativeStubbornPackSize(for: frame, inside: bounds)
         } else {
             // Flexible windows can be packed smaller than their target size; their
@@ -1400,6 +1406,12 @@ final class WindowArranger {
             }
         }
         return false
+    }
+
+    private func framesHaveConflict(_ frames: [CGRect], inside bounds: CGRect) -> Bool {
+        framesHaveMeaningfulOverlap(frames) ||
+            framesHaveVisibleEdgeOverlap(frames) ||
+            framesOverflowBounds(frames, inside: bounds)
     }
 
     private func framesOverflowBounds(_ frames: [CGRect], inside bounds: CGRect) -> Bool {
@@ -1868,9 +1880,10 @@ final class WindowArranger {
             writeResults.append(("confirmSize", writeSize()))
             writeResults.append(("finalPosition", writePosition(settle: Constants.sameDisplayVerifyDelay)))
         } else {
-            writeResults.append(("initialPosition", writePosition()))
-            writeResults.append(("size", writeSize()))
-            writeResults.append(("postSizePosition", writePosition(settle: Constants.sameDisplayVerifyDelay)))
+            writeResults.append(("initialSize", writeSize()))
+            writeResults.append(("position", writePosition()))
+            writeResults.append(("confirmSize", writeSize()))
+            writeResults.append(("finalPosition", writePosition(settle: Constants.sameDisplayVerifyDelay)))
         }
 
         if writeResults.allSatisfy({ $0.1 == .success }) {
