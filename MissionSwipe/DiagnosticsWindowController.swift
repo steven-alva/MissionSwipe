@@ -6,6 +6,7 @@ final class DiagnosticsWindowController: NSWindowController {
     var onOpenLogFolder: (() -> Void)?
     var onCopyLastActionReport: (() -> Void)?
     var onCaptureSceneSnapshot: (() -> Void)?
+    var onRunLayoutCheck: (() -> Void)?
     var onDumpWindowList: (() -> Void)?
     var onDumpAXWindows: (() -> Void)?
     var onToggleMissionControlGestureProbe: ((Bool) -> Void)?
@@ -31,7 +32,7 @@ final class DiagnosticsWindowController: NSWindowController {
         self.inputEventProbeEnabled = inputEventProbeEnabled
         self.language = language
         let window = NSWindow(
-            contentRect: NSRect(x: 0, y: 0, width: 520, height: 580),
+            contentRect: NSRect(x: 0, y: 0, width: 520, height: 640),
             styleMask: [.titled, .closable],
             backing: .buffered,
             defer: false
@@ -118,6 +119,12 @@ final class DiagnosticsWindowController: NSWindowController {
 
         stack.addArrangedSubview(separatorView())
 
+        // Layout check — pass/fail validation after arrange
+        stack.addArrangedSubview(sectionHeader(text(en: "✅ Layout check", zh: "✅ 排版检测")))
+        stack.addArrangedSubview(buildLayoutCheckSection())
+
+        stack.addArrangedSubview(separatorView())
+
         // Logs section
         stack.addArrangedSubview(sectionHeader(text(en: "📋 Logs", zh: "📋 日志")))
         stack.addArrangedSubview(buildLogSection())
@@ -172,6 +179,33 @@ final class DiagnosticsWindowController: NSWindowController {
             title: text(en: "Capture scene to clipboard", zh: "捕获场景到剪贴板"),
             target: self,
             action: #selector(captureSceneTapped)
+        )
+        button.bezelStyle = .rounded
+        container.addArrangedSubview(button)
+
+        return container
+    }
+
+    private func buildLayoutCheckSection() -> NSView {
+        let container = NSStackView()
+        container.orientation = .vertical
+        container.alignment = .leading
+        container.spacing = 6
+
+        let hint = NSTextField(labelWithString: text(
+            en: "Checks the current desktop layout for overlap, overflow, low coverage, and hidden AX windows. Run immediately after a bad arrange.",
+            zh: "检测当前桌面排版是否有重叠、溢出、覆盖不足、AX 窗口和可见窗口数量不一致。排版异常后立即运行。"
+        ))
+        hint.font = .systemFont(ofSize: 11)
+        hint.textColor = .secondaryLabelColor
+        hint.maximumNumberOfLines = 3
+        hint.preferredMaxLayoutWidth = 472
+        container.addArrangedSubview(hint)
+
+        let button = NSButton(
+            title: text(en: "Run layout check to clipboard", zh: "运行排版检测并复制"),
+            target: self,
+            action: #selector(runLayoutCheckTapped)
         )
         button.bezelStyle = .rounded
         container.addArrangedSubview(button)
@@ -370,6 +404,10 @@ final class DiagnosticsWindowController: NSWindowController {
 
     @objc private func captureSceneTapped() {
         onCaptureSceneSnapshot?()
+    }
+
+    @objc private func runLayoutCheckTapped() {
+        onRunLayoutCheck?()
     }
 
     @objc private func dumpCGTapped() {

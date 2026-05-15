@@ -27,6 +27,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private let missionControlDetector = MissionControlDetector()
     private let debugWindowDumper = DebugWindowDumper()
     private let sceneSnapshotCapture = SceneSnapshotCapture()
+    private let layoutDiagnosticCapture = LayoutDiagnosticCapture()
     private let trackpadGestureDetector = TrackpadGestureDetector()
     private let gestureHUD = GestureHUDController()
     private let layoutPreviewHUD = LayoutPreviewHUDController()
@@ -255,6 +256,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             }
             controller.onCaptureSceneSnapshot = { [weak self] in
                 self?.captureSceneSnapshot()
+            }
+            controller.onRunLayoutCheck = { [weak self] in
+                self?.runLayoutCheck()
             }
             controller.onDumpWindowList = { [weak self] in
                 self?.debugWindowDumper.dumpWindowList()
@@ -1025,6 +1029,20 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             ? "已捕获场景 (\(lineCount) 行) — 已复制并写入日志"
             : "Scene captured (\(lineCount) lines) — copied & logged"
         gestureHUD.show(message: message, progress: 1, kind: .success, duration: 1.8)
+    }
+
+    private func runLayoutCheck() {
+        let report = layoutDiagnosticCapture.capture()
+        NSPasteboard.general.clearContents()
+        NSPasteboard.general.setString(report, forType: .string)
+        let lineCount = report.split(separator: "\n", omittingEmptySubsequences: false).count
+        Logger.info("Layout check captured (\(lineCount) lines) and copied to clipboard")
+        Logger.info("===== Layout Check Begin =====\n\(report)\n===== Layout Check End =====")
+        let zh = configuration.language == .simplifiedChinese
+        let message = zh
+            ? "排版检测已复制 (\(lineCount) 行)"
+            : "Layout check copied (\(lineCount) lines)"
+        gestureHUD.show(message: message, progress: 1, kind: .success, duration: 1.6)
     }
 
     private func copyRecentLog() {
