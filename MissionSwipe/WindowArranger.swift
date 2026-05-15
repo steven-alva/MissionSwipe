@@ -1087,13 +1087,15 @@ final class WindowArranger {
 
         let stubbornFrames = applied.filter { isStubborn($0) }
         let actualFrames = applied.compactMap(\.actual)
-        let hasOverlap = framesHaveMeaningfulOverlap(actualFrames) || framesHaveVisibleEdgeOverlap(actualFrames)
+        let hasConflict = framesHaveMeaningfulOverlap(actualFrames) ||
+            framesHaveVisibleEdgeOverlap(actualFrames) ||
+            framesOverflowBounds(actualFrames, inside: bounds)
 
-        if stubbornFrames.isEmpty, !hasOverlap {
+        if stubbornFrames.isEmpty, !hasConflict {
             return ArrangeOutcome(arrangedCount: applied.filter(\.didMove).count, minimizedCount: 0, stubbornCount: 0, adapted: false)
         }
 
-        Logger.info("Smart Fit verify: stubborn=\(stubbornFrames.count), overlap=\(hasOverlap), allowMinimize=\(allowMinimization); running adaptive second pass")
+        Logger.info("Smart Fit verify: stubborn=\(stubbornFrames.count), conflict=\(hasConflict), allowMinimize=\(allowMinimization); running adaptive second pass")
         for stubborn in stubbornFrames {
             let actualText = stubborn.actual.map { "\($0.integral)" } ?? "nil"
             Logger.info("Smart Fit stubborn detail: owner=\(stubborn.window.candidate.ownerName), title=\"\(stubborn.window.axWindow.title)\", target=\(stubborn.target.integral), actual=\(actualText), didMove=\(stubborn.didMove)")
@@ -1124,15 +1126,17 @@ final class WindowArranger {
             let secondPass = applyAndMeasure(frames)
             latestApplied = secondPass
             let secondPassFrames = secondPass.compactMap(\.actual)
-            let secondPassOverlap = framesHaveMeaningfulOverlap(secondPassFrames) || framesHaveVisibleEdgeOverlap(secondPassFrames)
-            if !secondPassOverlap {
+            let secondPassConflict = framesHaveMeaningfulOverlap(secondPassFrames) ||
+                framesHaveVisibleEdgeOverlap(secondPassFrames) ||
+                framesOverflowBounds(secondPassFrames, inside: bounds)
+            if !secondPassConflict {
                 var outcome = ArrangeOutcome()
                 outcome.stubbornCount = stubbornFrames.count
                 outcome.adapted = true
                 outcome.arrangedCount = secondPass.filter(\.didMove).count
                 return outcome
             }
-            Logger.info("Smart Fit adaptive second pass still overlaps; continuing to overflow strategy")
+            Logger.info("Smart Fit adaptive second pass still conflicts; continuing to overflow strategy")
         }
 
         switch smartFitOverflowStrategy {
@@ -1145,7 +1149,7 @@ final class WindowArranger {
             return outcome
 
         case .stackWithPeek:
-            if !hasOverlap {
+            if !hasConflict {
                 // No real overlap; first-pass is good enough. No need to disturb the tile.
                 Logger.info("Smart Fit: stackWithPeek fallback skipped — no meaningful overlap, keeping first-pass tile")
                 var outcome = ArrangeOutcome()
@@ -1167,9 +1171,11 @@ final class WindowArranger {
 
         // Minimize strategy continues below: only drop when there's real overlap.
         let latestFrames = latestApplied.compactMap(\.actual)
-        let latestOverlap = framesHaveMeaningfulOverlap(latestFrames) || framesHaveVisibleEdgeOverlap(latestFrames)
-        if !latestOverlap {
-            Logger.info("Smart Fit: minimize strategy keeps first-pass placement — no overlap above tolerance (\(String(format: "%.0f", smartFitOverlapTolerance * 100))%)")
+        let latestConflict = framesHaveMeaningfulOverlap(latestFrames) ||
+            framesHaveVisibleEdgeOverlap(latestFrames) ||
+            framesOverflowBounds(latestFrames, inside: bounds)
+        if !latestConflict {
+            Logger.info("Smart Fit: minimize strategy keeps latest placement — no visible conflict")
             var outcome = ArrangeOutcome()
             outcome.stubbornCount = stubbornFrames.count
             outcome.adapted = false
@@ -1383,6 +1389,16 @@ final class WindowArranger {
             }
         }
         return false
+    }
+
+    private func framesOverflowBounds(_ frames: [CGRect], inside bounds: CGRect) -> Bool {
+        let tolerance: CGFloat = 8
+        return frames.contains { frame in
+            frame.minX < bounds.minX - tolerance ||
+                frame.minY < bounds.minY - tolerance ||
+                frame.maxX > bounds.maxX + tolerance ||
+                frame.maxY > bounds.maxY + tolerance
+        }
     }
 
     private struct EffectiveWindow {
@@ -1866,7 +1882,9 @@ final class WindowArranger {
             }
 
             if retryResults.allSatisfy({ $0.1 == .success }) {
-                if let actualFrame = currentFrame(for: element) {
+                let actualFrame = clampCurrentFrameIntoTargetDisplayIfNeeded(for: element, target: frame) ??
+                    currentFrame(for: element)
+                if let actualFrame {
                     Logger.warning("Arranged window settled away from target after retry. target=\(frame), actual=\(actualFrame.integral), crossDisplay=\(crossDisplay)")
                 }
                 return true
@@ -1897,6 +1915,67 @@ final class WindowArranger {
         let currentDisplay = displayIndex(for: currentFrame, in: layouts)
         let targetDisplay = displayIndex(for: target, in: layouts)
         return currentDisplay != targetDisplay
+    }
+
+    private func clampCurrentFrameIntoTargetDisplayIfNeeded(for element: AXUIElement, target: CGRect) -> CGRect? {
+        guard let actual = currentFrame(for: element) else {
+            return nil
+        }
+
+        let targetBounds = usableDisplayBounds(containing: target)
+        let clampedX = clampedOrigin(
+            currentMin: actual.minX,
+            size: actual.width,
+            min: targetBounds.minX,
+            max: targetBounds.maxX
+        )
+        let clampedY = clampedOrigin(
+            currentMin: actual.minY,
+            size: actual.height,
+            min: targetBounds.minY,
+            max: targetBounds.maxY
+        )
+
+        guard abs(clampedX - actual.minX) > 1 || abs(clampedY - actual.minY) > 1 else {
+            return actual
+        }
+
+        var position = CGPoint(x: clampedX, y: clampedY)
+        guard let positionValue = AXValueCreate(.cgPoint, &position) else {
+            return actual
+        }
+
+        let result = AXUIElementSetAttributeValue(element, kAXPositionAttribute as CFString, positionValue)
+        guard result == .success else {
+            Logger.warning("Failed to clamp arranged window into display bounds. error=\(result.rawValue), actual=\(actual.integral), bounds=\(targetBounds.integral)")
+            return actual
+        }
+
+        pumpRunLoop(forSeconds: Constants.sameDisplayVerifyDelay)
+        let clamped = currentFrame(for: element)?.integral ?? CGRect(origin: position, size: actual.size).integral
+        Logger.info("Clamped arranged window into display bounds. before=\(actual.integral), after=\(clamped), bounds=\(targetBounds.integral)")
+        return clamped
+    }
+
+    private func clampedOrigin(currentMin: CGFloat, size: CGFloat, min: CGFloat, max: CGFloat) -> CGFloat {
+        guard size < max - min else {
+            return min
+        }
+        return Swift.max(min, Swift.min(currentMin, max - size))
+    }
+
+    private func usableDisplayBounds(containing frame: CGRect) -> CGRect {
+        let layouts = activeDisplayLayouts()
+        guard !layouts.isEmpty else {
+            return frame
+        }
+
+        let bounds = layouts.map(\.usableBounds)
+        let index = displayIndex(for: frame, in: bounds)
+        guard layouts.indices.contains(index) else {
+            return bounds[0]
+        }
+        return layouts[index].usableBounds
     }
 
     private func pumpRunLoop(forSeconds seconds: TimeInterval) {
