@@ -66,7 +66,7 @@ final class WindowArranger {
         // Using a small flexible footprint keeps multiple flexible windows in the
         // same row instead of pretending they each need their original tile size.
         static let flexibleMinPackWidth: CGFloat = 480
-        static let flexibleMinPackHeight: CGFloat = 320
+        static let flexibleMinPackHeight: CGFloat = 375
     }
 
     private struct ArrangeableWindow {
@@ -1099,30 +1099,8 @@ final class WindowArranger {
             Logger.info("Smart Fit stubborn detail: owner=\(stubborn.window.candidate.ownerName), title=\"\(stubborn.window.axWindow.title)\", target=\(stubborn.target.integral), actual=\(actualText), didMove=\(stubborn.didMove)")
         }
 
-        var effective = applied.map { frame -> EffectiveWindow in
-            let stubborn = isStubborn(frame)
-            let size: CGSize
-            if stubborn {
-                // Stubborn windows are pinned to their actual size — that's what makes
-                // them stubborn. The pack respects that as a hard constraint.
-                size = frame.actual?.size ?? frame.target.size
-            } else {
-                // Flexible windows can be packed smaller than their target size; their
-                // final cell width/height will be stretched up to fill the row anyway.
-                // Use a small "flex pack" footprint so a normal 890x555 tile target
-                // doesn't make us think the window needs its own row next to a stubborn
-                // neighbour.
-                size = CGSize(
-                    width: min(frame.target.width, Constants.flexibleMinPackWidth),
-                    height: min(frame.target.height, Constants.flexibleMinPackHeight)
-                )
-            }
-            let clampedSize = CGSize(
-                width: min(bounds.width, max(160, size.width)),
-                height: min(bounds.height, max(120, size.height))
-            )
-            return EffectiveWindow(window: frame.window, size: clampedSize, isStubborn: stubborn)
-        }
+        var effective = applied.map { effectiveWindow(for: $0, inside: bounds) }
+        let maxColumns = maximumColumns(in: plannedFrames)
 
         // Primary-placement path: the user explicitly picked one window as primary and
         // told the algorithm where it goes. Even if the secondaries refuse their cell
@@ -1137,23 +1115,32 @@ final class WindowArranger {
             return outcome
         }
 
-        // First, try the adaptive packing without dropping anyone.
-        if let frames = adaptiveLayout(effective, inside: bounds, gap: gap) {
+        var latestApplied = applied
+
+        // First, try the adaptive packing without dropping anyone. The result must be
+        // verified after AX writes; Chrome can accept a planned non-overlap frame as a
+        // different actual frame, so a plan being geometrically valid is not enough.
+        if let frames = adaptiveLayout(effective, inside: bounds, gap: gap, maxColumns: maxColumns) {
             let secondPass = applyAndMeasure(frames)
-            var outcome = ArrangeOutcome()
-            outcome.stubbornCount = stubbornFrames.count
-            outcome.adapted = true
-            outcome.arrangedCount = secondPass.filter(\.didMove).count
-            return outcome
+            latestApplied = secondPass
+            let secondPassOverlap = framesHaveMeaningfulOverlap(secondPass.compactMap(\.actual))
+            if !secondPassOverlap {
+                var outcome = ArrangeOutcome()
+                outcome.stubbornCount = stubbornFrames.count
+                outcome.adapted = true
+                outcome.arrangedCount = secondPass.filter(\.didMove).count
+                return outcome
+            }
+            Logger.info("Smart Fit adaptive second pass still overlaps; continuing to overflow strategy")
         }
 
         switch smartFitOverflowStrategy {
         case .tolerateOverlap:
-            Logger.info("Smart Fit: tolerateOverlap strategy keeps first-pass placement (overlap=\(hasOverlap))")
+            Logger.info("Smart Fit: tolerateOverlap strategy keeps latest placement")
             var outcome = ArrangeOutcome()
             outcome.stubbornCount = stubbornFrames.count
             outcome.adapted = false
-            outcome.arrangedCount = applied.filter(\.didMove).count
+            outcome.arrangedCount = latestApplied.filter(\.didMove).count
             return outcome
 
         case .stackWithPeek:
@@ -1178,12 +1165,13 @@ final class WindowArranger {
         }
 
         // Minimize strategy continues below: only drop when there's real overlap.
-        if !hasOverlap {
+        let latestOverlap = framesHaveMeaningfulOverlap(latestApplied.compactMap(\.actual))
+        if !latestOverlap {
             Logger.info("Smart Fit: minimize strategy keeps first-pass placement — no overlap above tolerance (\(String(format: "%.0f", smartFitOverlapTolerance * 100))%)")
             var outcome = ArrangeOutcome()
             outcome.stubbornCount = stubbornFrames.count
             outcome.adapted = false
-            outcome.arrangedCount = applied.filter(\.didMove).count
+            outcome.arrangedCount = latestApplied.filter(\.didMove).count
             return outcome
         }
 
@@ -1198,7 +1186,7 @@ final class WindowArranger {
             let dropped = effective.remove(at: dropIndex)
             droppedToMinimize.append(dropped.window)
             Logger.info("Smart Fit dropping window to retry adaptive layout (attempt \(attempt)): owner=\(dropped.window.candidate.ownerName), title=\"\(dropped.window.axWindow.title)\"")
-            if let frames = adaptiveLayout(effective, inside: bounds, gap: gap) {
+            if let frames = adaptiveLayout(effective, inside: bounds, gap: gap, maxColumns: maxColumns) {
                 adaptiveFrames = frames
                 Logger.info("Smart Fit adaptive layout succeeded after dropping \(attempt) window(s)")
                 break
@@ -1213,7 +1201,7 @@ final class WindowArranger {
             let secondPass = applyAndMeasure(adaptiveFrames)
             outcome.arrangedCount = secondPass.filter(\.didMove).count
         } else {
-            outcome.arrangedCount = applied.filter(\.didMove).count
+            outcome.arrangedCount = latestApplied.filter(\.didMove).count
         }
 
         for window in droppedToMinimize {
@@ -1224,6 +1212,117 @@ final class WindowArranger {
         }
 
         return outcome
+    }
+
+    private func maximumColumns(in plannedFrames: [PlannedFrame]) -> Int? {
+        guard plannedFrames.count > 1 else {
+            return nil
+        }
+
+        var rowYs: [CGFloat] = []
+        var rowCounts: [Int] = []
+        for plannedFrame in plannedFrames {
+            let y = plannedFrame.frame.minY
+            if let index = rowYs.firstIndex(where: { abs($0 - y) <= 8 }) {
+                rowCounts[index] += 1
+            } else {
+                rowYs.append(y)
+                rowCounts.append(1)
+            }
+        }
+
+        guard let maxCount = rowCounts.max(), maxCount > 0 else {
+            return nil
+        }
+        return maxCount
+    }
+
+    private func effectiveWindow(for frame: AppliedFrame, inside bounds: CGRect) -> EffectiveWindow {
+        let stubborn = isStubborn(frame)
+        let size: CGSize
+        if stubborn {
+            size = conservativeStubbornPackSize(for: frame, inside: bounds)
+        } else {
+            // Flexible windows can be packed smaller than their target size; their
+            // final cell width/height will be stretched up to fill the row anyway.
+            // Using a small flexible footprint keeps multiple flexible windows in the
+            // same row instead of pretending each one needs its original tile size.
+            size = CGSize(
+                width: min(frame.target.width, Constants.flexibleMinPackWidth),
+                height: min(frame.target.height, Constants.flexibleMinPackHeight)
+            )
+        }
+        let clampedSize = CGSize(
+            width: min(bounds.width, max(160, size.width)),
+            height: min(bounds.height, max(120, size.height))
+        )
+        return EffectiveWindow(window: frame.window, size: clampedSize, isStubborn: stubborn)
+    }
+
+    private func conservativeStubbornPackSize(for frame: AppliedFrame, inside bounds: CGRect) -> CGSize {
+        guard let actual = frame.actual else {
+            return frame.target.size
+        }
+
+        // Treat "refused to shrink" as useful minimum-size evidence, but cap extreme
+        // first-pass results. A common failure mode is position-first AX writes moving
+        // a tall Chrome window to the bottom before resizing; macOS clamps it back into
+        // screen bounds and the snapshot reports a huge height such as 840 pt. That is
+        // not a real minimum height, and using it as a hard constraint makes Smart Fit
+        // minimize windows that can actually coexist.
+        let target = frame.target.size
+        let original = frame.window.originalFrame.size
+        let isClampArtifact = looksLikeScreenClampArtifact(frame, actual: actual, inside: bounds)
+
+        let width = conservativePackDimension(
+            actual: actual.width,
+            target: target.width,
+            original: original.width,
+            flexibleMinimum: Constants.flexibleMinPackWidth,
+            maximum: bounds.width,
+            isClampArtifact: false
+        )
+        let height = conservativePackDimension(
+            actual: actual.height,
+            target: target.height,
+            original: original.height,
+            flexibleMinimum: Constants.flexibleMinPackHeight,
+            maximum: bounds.height,
+            isClampArtifact: isClampArtifact
+        )
+
+        return CGSize(width: min(bounds.width, width), height: min(bounds.height, height))
+    }
+
+    private func conservativePackDimension(
+        actual: CGFloat,
+        target: CGFloat,
+        original: CGFloat,
+        flexibleMinimum: CGFloat,
+        maximum: CGFloat,
+        isClampArtifact: Bool
+    ) -> CGFloat {
+        let baseline = min(target, max(flexibleMinimum, min(actual, original)))
+
+        if actual > target + Constants.stubbornSizeSlack {
+            return min(maximum, isClampArtifact ? baseline : actual)
+        }
+
+        if actual < target - Constants.stubbornSizeSlack {
+            return min(maximum, max(actual, flexibleMinimum))
+        }
+
+        return min(maximum, baseline)
+    }
+
+    private func looksLikeScreenClampArtifact(_ frame: AppliedFrame, actual: CGRect, inside bounds: CGRect) -> Bool {
+        let target = frame.target
+        let actualMuchTaller = actual.height > target.height + Constants.stubbornSizeSlack * 2
+        let targetWasLowerHalf = target.midY > bounds.midY
+        let actualMovedUp = actual.minY < target.minY - Constants.stubbornSizeSlack
+        let actualPinnedToBottom = abs(actual.maxY - bounds.maxY) <= Constants.stubbornSizeSlack
+
+        return actualMuchTaller && targetWasLowerHalf && actualMovedUp && actualPinnedToBottom
     }
 
     private func isStubborn(_ frame: AppliedFrame) -> Bool {
@@ -1265,26 +1364,31 @@ final class WindowArranger {
         let isStubborn: Bool
     }
 
-    private func adaptiveLayout(_ candidates: [EffectiveWindow], inside bounds: CGRect, gap: CGFloat) -> [PlannedFrame]? {
+    private func adaptiveLayout(_ candidates: [EffectiveWindow], inside bounds: CGRect, gap: CGFloat, maxColumns: Int?) -> [PlannedFrame]? {
         guard !candidates.isEmpty else {
             return []
         }
 
-        // Pack greedy by area-descending so big (often stubborn) windows are placed first.
-        let sortedByArea = candidates.sorted {
-            ($0.size.width * $0.size.height) > ($1.size.width * $1.size.height)
+        if candidates.count == 3, maxColumns.map({ $0 <= 2 }) ?? false {
+            return adaptiveThreeAsPrimaryLeftTwoRight(candidates, inside: bounds, gap: gap)
         }
+
+        // Preserve the caller's planned order. Smart Fit may adjust row heights and
+        // cell widths, but it should not visually reshuffle the user's chosen layout.
+        let orderedCandidates = candidates
 
         var rows: [[EffectiveWindow]] = [[]]
         var rowWidths: [CGFloat] = [0]
         var rowHeights: [CGFloat] = [0]
 
-        for window in sortedByArea {
+        for window in orderedCandidates {
             let lastIndex = rows.count - 1
             let isRowEmpty = rows[lastIndex].isEmpty
             let projectedWidth = rowWidths[lastIndex] + window.size.width + (isRowEmpty ? 0 : gap)
+            let projectedColumnCount = rows[lastIndex].count + 1
+            let exceedsColumnLimit = maxColumns.map { projectedColumnCount > $0 } ?? false
 
-            if !isRowEmpty && projectedWidth > bounds.width {
+            if !isRowEmpty && (projectedWidth > bounds.width || exceedsColumnLimit) {
                 rows.append([window])
                 rowWidths.append(window.size.width)
                 rowHeights.append(window.size.height)
@@ -1343,6 +1447,77 @@ final class WindowArranger {
         }
 
         return frames
+    }
+
+    private func adaptiveThreeAsPrimaryLeftTwoRight(_ candidates: [EffectiveWindow], inside bounds: CGRect, gap: CGFloat) -> [PlannedFrame]? {
+        guard candidates.count == 3,
+              let primary = candidates.max(by: { lhs, rhs in
+                  let lhsScore = primaryWindowScore(lhs.window)
+                  let rhsScore = primaryWindowScore(rhs.window)
+                  if abs(lhsScore - rhsScore) > 1 {
+                      return lhsScore < rhsScore
+                  }
+                  return (lhs.size.width * lhs.size.height) < (rhs.size.width * rhs.size.height)
+              }) else {
+            return nil
+        }
+
+        let secondaryWindows = candidates
+            .filter { $0.window.candidate.windowID != primary.window.candidate.windowID }
+            .sorted {
+                if abs($0.window.originalFrame.minY - $1.window.originalFrame.minY) > 8 {
+                    return $0.window.originalFrame.minY < $1.window.originalFrame.minY
+                }
+                return $0.window.originalFrame.minX < $1.window.originalFrame.minX
+            }
+        guard secondaryWindows.count == 2 else {
+            return nil
+        }
+
+        let secondaryRequiredWidth = max(
+            Constants.flexibleMinPackWidth,
+            secondaryWindows.map(\.size.width).max() ?? Constants.flexibleMinPackWidth
+        )
+        let desiredPrimaryWidth = floor((bounds.width - gap) * 0.50)
+        let maxPrimaryWidth = bounds.width - gap - secondaryRequiredWidth
+        let primaryWidth = min(max(desiredPrimaryWidth, primary.size.width), maxPrimaryWidth)
+        let secondaryWidth = bounds.width - gap - primaryWidth
+
+        guard primaryWidth >= 240, secondaryWidth >= secondaryRequiredWidth else {
+            return nil
+        }
+
+        let secondaryMinimumHeights = secondaryWindows.map {
+            min(bounds.height, max(180, $0.size.height))
+        }
+        let requiredSecondaryHeight = secondaryMinimumHeights.reduce(0, +) + gap
+        guard requiredSecondaryHeight <= bounds.height + 1 else {
+            return nil
+        }
+
+        let secondarySlack = max(0, bounds.height - gap - secondaryMinimumHeights.reduce(0, +))
+        let topHeight = floor(secondaryMinimumHeights[0] + secondarySlack / 2)
+        let bottomY = bounds.minY + topHeight + gap
+        let bottomHeight = bounds.maxY - bottomY
+
+        Logger.info(
+            "Smart Fit adaptive 3-window primary-left layout: primaryOwner=\(primary.window.candidate.ownerName), rightStackCount=2"
+        )
+
+        return [
+            PlannedFrame(
+                window: primary.window,
+                frame: CGRect(x: bounds.minX, y: bounds.minY, width: primaryWidth, height: bounds.height).integral
+            ),
+            PlannedFrame(
+                window: secondaryWindows[0].window,
+                frame: CGRect(x: bounds.minX + primaryWidth + gap, y: bounds.minY, width: secondaryWidth, height: topHeight).integral
+            ),
+            PlannedFrame(
+                window: secondaryWindows[1].window,
+                frame: CGRect(x: bounds.minX + primaryWidth + gap, y: bottomY, width: secondaryWidth, height: bottomHeight).integral
+            )
+        ]
     }
 
     private func chooseDropIndex(_ candidates: [EffectiveWindow]) -> Int? {
@@ -1611,40 +1786,75 @@ final class WindowArranger {
         let positionSettle = crossDisplay ? Constants.crossDisplaySettleDelay : Constants.sameDisplaySettleDelay
         let sizeSettle = crossDisplay ? Constants.crossDisplaySizeSettleDelay : Constants.sameDisplaySettleDelay
 
-        let initialPositionResult = AXUIElementSetAttributeValue(element, kAXPositionAttribute as CFString, positionValue)
-        pumpRunLoop(forSeconds: positionSettle)
+        let shouldShrinkBeforeMove: Bool = {
+            guard !crossDisplay, let currentBeforeMove else {
+                return false
+            }
+            return frame.width < currentBeforeMove.width - Constants.stubbornSizeSlack ||
+                frame.height < currentBeforeMove.height - Constants.stubbornSizeSlack
+        }()
 
-        let sizeResult = AXUIElementSetAttributeValue(element, kAXSizeAttribute as CFString, sizeValue)
-        pumpRunLoop(forSeconds: sizeSettle)
+        func writePosition(settle: TimeInterval = positionSettle) -> AXError {
+            let result = AXUIElementSetAttributeValue(element, kAXPositionAttribute as CFString, positionValue)
+            pumpRunLoop(forSeconds: settle)
+            return result
+        }
 
-        let postSizePositionResult = AXUIElementSetAttributeValue(element, kAXPositionAttribute as CFString, positionValue)
-        pumpRunLoop(forSeconds: Constants.sameDisplayVerifyDelay)
+        func writeSize(settle: TimeInterval = sizeSettle) -> AXError {
+            let result = AXUIElementSetAttributeValue(element, kAXSizeAttribute as CFString, sizeValue)
+            pumpRunLoop(forSeconds: settle)
+            return result
+        }
 
-        if initialPositionResult == .success, sizeResult == .success, postSizePositionResult == .success {
+        var writeResults: [(String, AXError)] = []
+        if shouldShrinkBeforeMove {
+            Logger.info("setFrame shrink-before-move sequence. current=\(currentBeforeMove?.integral.debugDescription ?? "nil"), target=\(frame.integral)")
+            writeResults.append(("initialSize", writeSize()))
+            writeResults.append(("position", writePosition()))
+            writeResults.append(("confirmSize", writeSize()))
+            writeResults.append(("finalPosition", writePosition(settle: Constants.sameDisplayVerifyDelay)))
+        } else {
+            writeResults.append(("initialPosition", writePosition()))
+            writeResults.append(("size", writeSize()))
+            writeResults.append(("postSizePosition", writePosition(settle: Constants.sameDisplayVerifyDelay)))
+        }
+
+        if writeResults.allSatisfy({ $0.1 == .success }) {
             if frameMatchesTarget(element: element, target: frame) {
                 return true
             }
 
             pumpRunLoop(forSeconds: Constants.sameDisplayVerifyDelay)
-            let retrySizeResult = AXUIElementSetAttributeValue(element, kAXSizeAttribute as CFString, sizeValue)
-            pumpRunLoop(forSeconds: sizeSettle)
-            let finalPositionResult = AXUIElementSetAttributeValue(element, kAXPositionAttribute as CFString, positionValue)
-            pumpRunLoop(forSeconds: Constants.sameDisplayVerifyDelay)
-            if retrySizeResult == .success, finalPositionResult == .success {
+            let retryResults: [(String, AXError)]
+            if shouldShrinkBeforeMove {
+                retryResults = [
+                    ("retrySize", writeSize()),
+                    ("retryPosition", writePosition(settle: Constants.sameDisplayVerifyDelay))
+                ]
+            } else {
+                retryResults = [
+                    ("retrySize", writeSize()),
+                    ("finalPosition", writePosition(settle: Constants.sameDisplayVerifyDelay))
+                ]
+            }
+
+            if retryResults.allSatisfy({ $0.1 == .success }) {
                 if let actualFrame = currentFrame(for: element) {
                     Logger.warning("Arranged window settled away from target after retry. target=\(frame), actual=\(actualFrame.integral), crossDisplay=\(crossDisplay)")
                 }
                 return true
             }
 
+            let retryErrorText = retryResults.map { "\($0.0)=\($0.1.rawValue)" }.joined(separator: ", ")
             Logger.warning(
-                "Arranged window did not match target and retry failed. retrySizeError=\(retrySizeResult.rawValue), finalPositionError=\(finalPositionResult.rawValue), crossDisplay=\(crossDisplay)"
+                "Arranged window did not match target and retry failed. errors=[\(retryErrorText)], crossDisplay=\(crossDisplay)"
             )
             return true
         }
 
+        let errorText = writeResults.map { "\($0.0)=\($0.1.rawValue)" }.joined(separator: ", ")
         Logger.warning(
-            "Failed to set arranged window frame. initialPositionError=\(initialPositionResult.rawValue), sizeError=\(sizeResult.rawValue), postSizePositionError=\(postSizePositionResult.rawValue), crossDisplay=\(crossDisplay)"
+            "Failed to set arranged window frame. errors=[\(errorText)], crossDisplay=\(crossDisplay)"
         )
         return false
     }
